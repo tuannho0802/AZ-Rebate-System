@@ -15,6 +15,19 @@ interface NearestAncestorConfig {
   markupPips: number;
 }
 
+export interface UserConfigNode {
+  userId: string;
+  email: string;
+  fullName: string | null;
+  role: string;
+  isActive: boolean;
+  rebateUnit: number | null;
+  markupPips: number | null;
+  transferUnit: number | null;
+  version: number | null;
+  children: UserConfigNode[];
+}
+
 // PrismaService and Prisma.TransactionClient expose the same model delegates
 // (user, userCommissionConfig, $queryRaw, ...), so a single param type covers
 // both "no transaction" (this.prisma) and "inside caller's transaction" (tx).
@@ -27,55 +40,34 @@ export class CommissionConfigService {
     private readonly auditLog: AuditLogService,
   ) { }
 
-  private async resolveAncestorAccess(
+  /**
+   * SIET LAI (theo xac nhan nghiep vu): chi CHA TRUC TIEP moi duoc set config
+   * cho con. Khong cho phep to tien xa hon "nhay cap" (skip-level), va khong
+   * cho tu sua config chinh minh (vi actor.id se khong bao gio == user.parentId
+   * cua chinh no, tru truong hop du lieu loi).
+   */
+  private async resolveParentAccess(
     userId: string,
     actorId: string,
     assetId: string,
     client: DbClient,
-  ): Promise<{ actorInChain: boolean; nearestAncestorConfig: NearestAncestorConfig | null }> {
-    const ancestors = await client.$queryRaw<{ id: string; depth: number }[]>`
-      WITH RECURSIVE ancestors AS (
-        SELECT id, "parentId", 0 AS depth FROM "User" WHERE id = ${userId}
-        UNION ALL
-        SELECT u.id, u."parentId", a.depth + 1
-        FROM "User" u
-        INNER JOIN ancestors a ON u.id = a."parentId"
-      )
-      SELECT id, depth FROM ancestors;
-    `;
-
-    const actorInChain = ancestors.some((a) => a.id === actorId);
-    const ancestorIdsExcludingSelf = ancestors.filter((a) => a.id !== userId).map((a) => a.id);
-
-    if (ancestorIdsExcludingSelf.length === 0) {
-      return { actorInChain, nearestAncestorConfig: null };
+  ): Promise<{ isDirectParent: boolean; parentConfig: NearestAncestorConfig | null }> {
+    const user = await client.user.findUnique({ where: { id: userId }, select: { parentId: true } });
+    if (!user || !user.parentId) {
+      return { isDirectParent: false, parentConfig: null };
     }
 
-    const configsInChain = await client.userCommissionConfig.findMany({
-      where: { assetId, userId: { in: ancestorIdsExcludingSelf } },
+    const isDirectParent = user.parentId === actorId;
+
+    const parentCfg = await client.userCommissionConfig.findUnique({
+      where: { userId_assetId: { userId: user.parentId, assetId } },
     });
 
-    if (configsInChain.length === 0) {
-      return { actorInChain, nearestAncestorConfig: null };
-    }
-
-    const depthById = new Map(ancestors.map((a) => [a.id, a.depth]));
-    let nearest = configsInChain[0];
-    let nearestDepth = depthById.get(nearest.userId) ?? Number.MAX_SAFE_INTEGER;
-    for (const cfg of configsInChain) {
-      const d = depthById.get(cfg.userId) ?? Number.MAX_SAFE_INTEGER;
-      if (d < nearestDepth) {
-        nearest = cfg;
-        nearestDepth = d;
-      }
-    }
-
     return {
-      actorInChain,
-      nearestAncestorConfig: {
-        rebateUnit: Number(nearest.rebateUnit),
-        markupPips: Number(nearest.markupPips),
-      },
+      isDirectParent,
+      parentConfig: parentCfg
+        ? { rebateUnit: Number(parentCfg.rebateUnit), markupPips: Number(parentCfg.markupPips) }
+        : null,
     };
   }
 
@@ -99,27 +91,27 @@ export class CommissionConfigService {
       return;
     }
 
-    const { actorInChain, nearestAncestorConfig } = await this.resolveAncestorAccess(
+    const { isDirectParent, parentConfig } = await this.resolveParentAccess(
       userId,
       actor.id,
       assetId,
       client,
     );
 
-    if (!actorInChain) {
-      throw new ForbiddenException("You do not have permission to update this user's config");
+    if (!isDirectParent) {
+      throw new ForbiddenException('Only the direct parent can update this user\'s config');
     }
-    if (!nearestAncestorConfig) {
-      throw new BadRequestException('Orphan config: parent chain has no config for this asset');
+    if (!parentConfig) {
+      throw new BadRequestException('Orphan config: direct parent has no config for this asset');
     }
-    if (rebateUnit > nearestAncestorConfig.rebateUnit) {
+    if (rebateUnit > parentConfig.rebateUnit) {
       throw new BadRequestException(
-        `rebateUnit ${rebateUnit} exceeds parent cap ${nearestAncestorConfig.rebateUnit}`,
+        `rebateUnit ${rebateUnit} exceeds parent cap ${parentConfig.rebateUnit}`,
       );
     }
-    if (markupPips > nearestAncestorConfig.markupPips) {
+    if (markupPips > parentConfig.markupPips) {
       throw new BadRequestException(
-        `markupPips ${markupPips} exceeds parent cap ${nearestAncestorConfig.markupPips}`,
+        `markupPips ${markupPips} exceeds parent cap ${parentConfig.markupPips}`,
       );
     }
   }
@@ -234,5 +226,116 @@ export class CommissionConfigService {
     });
 
     return updated;
+  }
+
+  /**
+   * ADMIN-ONLY: xem toan bo cay (MIB -> lvN) kem config hoa hong cua tung
+   * nguoi cho 1 asset. Dung de build dashboard Admin.
+   */
+  async getFullTree(rootUserId: string, assetId: string, actor: RequestActor): Promise<UserConfigNode> {
+    if (actor.type !== 'ADMIN') {
+      throw new ForbiddenException('Only Admin can view the full commission tree');
+    }
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        parentId: string | null;
+        email: string;
+        fullName: string | null;
+        role: string;
+        isActive: boolean;
+        depth: number;
+        rebateUnit: string | null;
+        markupPips: string | null;
+        transferUnit: string | null;
+        version: number | null;
+      }>
+    >`
+      WITH RECURSIVE subtree AS (
+        SELECT u.id, u."parentId", u.email, u."fullName", u.role, u."isActive", 0 AS depth
+        FROM "User" u WHERE u.id = ${rootUserId}
+        UNION ALL
+        SELECT c.id, c."parentId", c.email, c."fullName", c.role, c."isActive", s.depth + 1
+        FROM "User" c
+        JOIN subtree s ON c."parentId" = s.id
+      )
+      SELECT s.*, cfg."rebateUnit", cfg."markupPips", cfg."transferUnit", cfg.version
+      FROM subtree s
+      LEFT JOIN "UserCommissionConfig" cfg ON cfg."userId" = s.id AND cfg."assetId" = ${assetId}
+      ORDER BY s.depth ASC;
+    `;
+
+    if (rows.length === 0) {
+      throw new NotFoundException('Root user not found');
+    }
+
+    const nodeById = new Map<string, UserConfigNode>();
+    for (const r of rows) {
+      nodeById.set(r.id, {
+        userId: r.id,
+        email: r.email,
+        fullName: r.fullName,
+        role: r.role,
+        isActive: r.isActive,
+        rebateUnit: r.rebateUnit === null ? null : Number(r.rebateUnit),
+        markupPips: r.markupPips === null ? null : Number(r.markupPips),
+        transferUnit: r.transferUnit === null ? null : Number(r.transferUnit),
+        version: r.version,
+        children: [],
+      });
+    }
+    for (const r of rows) {
+      if (r.parentId && nodeById.has(r.parentId)) {
+        nodeById.get(r.parentId)!.children.push(nodeById.get(r.id)!);
+      }
+    }
+    return nodeById.get(rootUserId)!;
+  }
+
+  /**
+   * Xem 1 cap: chinh minh + cac con TRUC TIEP kem config. Actor phai la
+   * chinh userId nay (tu xem cay cua minh) hoac Admin.
+   */
+  async getDirectChildren(userId: string, assetId: string, actor: RequestActor) {
+    if (actor.type !== 'ADMIN' && actor.id !== userId) {
+      throw new ForbiddenException('You can only view your own direct children');
+    }
+
+    const self = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!self) {
+      throw new NotFoundException('User not found');
+    }
+
+    const [selfCfg, children] = await Promise.all([
+      this.prisma.userCommissionConfig.findUnique({ where: { userId_assetId: { userId, assetId } } }),
+      this.prisma.user.findMany({ where: { parentId: userId } }),
+    ]);
+
+    const childIds = children.map((c) => c.id);
+    const childConfigs = childIds.length
+      ? await this.prisma.userCommissionConfig.findMany({ where: { assetId, userId: { in: childIds } } })
+      : [];
+    const cfgMap = new Map(childConfigs.map((c) => [c.userId, c]));
+
+    return {
+      self: {
+        userId,
+        email: self.email,
+        rebateUnit: selfCfg ? Number(selfCfg.rebateUnit) : null,
+        markupPips: selfCfg ? Number(selfCfg.markupPips) : null,
+      },
+      children: children.map((c) => {
+        const cfg = cfgMap.get(c.id);
+        return {
+          userId: c.id,
+          email: c.email,
+          role: c.role,
+          isActive: c.isActive,
+          rebateUnit: cfg ? Number(cfg.rebateUnit) : null,
+          markupPips: cfg ? Number(cfg.markupPips) : null,
+        };
+      }),
+    };
   }
 }
