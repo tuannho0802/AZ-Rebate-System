@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { UpsertConfigDto } from './dto/upsert-config.dto';
 import { UpdateConfigDto } from './dto/update-config.dto';
+import { Prisma } from '@prisma/client';
 
 export interface RequestActor {
   id: string;
@@ -14,6 +15,11 @@ interface NearestAncestorConfig {
   markupPips: number;
 }
 
+// PrismaService and Prisma.TransactionClient expose the same model delegates
+// (user, userCommissionConfig, $queryRaw, ...), so a single param type covers
+// both "no transaction" (this.prisma) and "inside caller's transaction" (tx).
+type DbClient = PrismaService | Prisma.TransactionClient;
+
 @Injectable()
 export class CommissionConfigService {
   constructor(
@@ -21,28 +27,13 @@ export class CommissionConfigService {
     private readonly auditLog: AuditLogService,
   ) { }
 
-  /**
-   * Dùng chung cho cả upsert() và update() — tránh lặp logic ở 2 nơi rồi lệch nhau
-   * theo thời gian (đúng pattern lỗi đã bị bắt ≥3 lần trong dự án này).
-   *
-   * Trả về:
-   *  - actorAllowed: actor có quyền sửa config của userId không (Admin luôn true)
-   *  - nearestAncestorConfig: config của tổ tiên GẦN NHẤT VỀ CÂY PHÂN CẤP (không phải
-   *    gần nhất về thời gian tạo) có config cho assetId này — dùng để cap check.
-   *    null nếu KHÔNG một tổ tiên nào có config asset đó (= orphan, phải chặn).
-   *
-   * QUAN TRỌNG: "gần nhất" ở đây là depth nhỏ nhất trong CTE (đi từ userId lên root),
-   * KHÔNG PHẢI ORDER BY "createdAt". Một ancestor xa hơn nhưng có config tạo sau vẫn
-   * phải xếp sau ancestor gần hơn có config tạo trước — nếu không sẽ cap-check nhầm
-   * đối tượng.
-   */
   private async resolveAncestorAccess(
     userId: string,
     actorId: string,
     assetId: string,
+    client: DbClient,
   ): Promise<{ actorInChain: boolean; nearestAncestorConfig: NearestAncestorConfig | null }> {
-    // depth 0 = chính userId, depth 1 = cha trực tiếp, depth 2 = ông, v.v.
-    const ancestors = await this.prisma.$queryRaw<{ id: string; depth: number }[]>`
+    const ancestors = await client.$queryRaw<{ id: string; depth: number }[]>`
       WITH RECURSIVE ancestors AS (
         SELECT id, "parentId", 0 AS depth FROM "User" WHERE id = ${userId}
         UNION ALL
@@ -54,27 +45,20 @@ export class CommissionConfigService {
     `;
 
     const actorInChain = ancestors.some((a) => a.id === actorId);
-
-    const ancestorIdsExcludingSelf = ancestors
-      .filter((a) => a.id !== userId)
-      .map((a) => a.id);
+    const ancestorIdsExcludingSelf = ancestors.filter((a) => a.id !== userId).map((a) => a.id);
 
     if (ancestorIdsExcludingSelf.length === 0) {
       return { actorInChain, nearestAncestorConfig: null };
     }
 
-    const configsInChain = await this.prisma.userCommissionConfig.findMany({
-      where: {
-        assetId,
-        userId: { in: ancestorIdsExcludingSelf },
-      },
+    const configsInChain = await client.userCommissionConfig.findMany({
+      where: { assetId, userId: { in: ancestorIdsExcludingSelf } },
     });
 
     if (configsInChain.length === 0) {
       return { actorInChain, nearestAncestorConfig: null };
     }
 
-    // Ghép depth vào từng config rồi chọn depth nhỏ nhất (gần userId nhất trong cây).
     const depthById = new Map(ancestors.map((a) => [a.id, a.depth]));
     let nearest = configsInChain[0];
     let nearestDepth = depthById.get(nearest.userId) ?? Number.MAX_SAFE_INTEGER;
@@ -95,12 +79,6 @@ export class CommissionConfigService {
     };
   }
 
-  /**
-   * Kiểm tra toàn bộ rule cho 1 lần ghi (dùng chung upsert + update):
-   * - root MIB: chỉ Admin
-   * - không phải Admin: phải nằm trong ancestor chain + orphan check + cap check
-   * Ném exception tương ứng nếu vi phạm. Không return gì — chỉ validate.
-   */
   private async assertCanWrite(
     userId: string,
     assetId: string,
@@ -108,32 +86,32 @@ export class CommissionConfigService {
     markupPips: number,
     actor: RequestActor,
     isRootUser: boolean,
+    client: DbClient,
   ): Promise<void> {
     if (isRootUser) {
       if (actor.type !== 'ADMIN') {
         throw new ForbiddenException('Only Admin can update config for root MIB');
       }
-      return; // Admin sửa root: không cần ancestor/cap check (không có cha để so).
+      return;
     }
 
     if (actor.type === 'ADMIN') {
-      return; // Admin bỏ qua toàn bộ ancestor/cap/orphan check.
+      return;
     }
 
     const { actorInChain, nearestAncestorConfig } = await this.resolveAncestorAccess(
       userId,
       actor.id,
       assetId,
+      client,
     );
 
     if (!actorInChain) {
       throw new ForbiddenException("You do not have permission to update this user's config");
     }
-
     if (!nearestAncestorConfig) {
       throw new BadRequestException('Orphan config: parent chain has no config for this asset');
     }
-
     if (rebateUnit > nearestAncestorConfig.rebateUnit) {
       throw new BadRequestException(
         `rebateUnit ${rebateUnit} exceeds parent cap ${nearestAncestorConfig.rebateUnit}`,
@@ -146,64 +124,67 @@ export class CommissionConfigService {
     }
   }
 
-  async upsert(dto: UpsertConfigDto, actor: RequestActor) {
+  /**
+   * `tx`: OPTIONAL Prisma transaction client. Pass this when calling upsert()
+   * from inside another service's $transaction (e.g. TemplateApplyService
+   * applying several template items atomically), so every query AND the
+   * resulting audit log participate in that same transaction and roll back
+   * together on failure. When omitted, runs standalone against `this.prisma`
+   * exactly as before (used by CommissionConfigController).
+   */
+  async upsert(dto: UpsertConfigDto, actor: RequestActor, tx?: Prisma.TransactionClient) {
+    const client: DbClient = tx ?? this.prisma;
     const { userId, assetId, rebateUnit, markupPips } = dto;
 
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await client.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    await this.assertCanWrite(userId, assetId, rebateUnit, markupPips, actor, user.parentId === null);
+    await this.assertCanWrite(userId, assetId, rebateUnit, markupPips, actor, user.parentId === null, client);
 
     const transferUnit = rebateUnit + markupPips;
-    const existing = await this.prisma.userCommissionConfig.findUnique({
+    const existing = await client.userCommissionConfig.findUnique({
       where: { userId_assetId: { userId, assetId } },
     });
 
     if (existing) {
-      const updated = await this.prisma.userCommissionConfig.update({
+      const updated = await client.userCommissionConfig.update({
         where: { userId_assetId: { userId, assetId } },
-        data: {
-          rebateUnit,
-          markupPips,
-          transferUnit,
-          version: existing.version + 1,
-        },
+        data: { rebateUnit, markupPips, transferUnit, version: existing.version + 1 },
       });
 
-      await this.auditLog.createLog({
-        actorId: actor.id,
-        actorType: actor.type,
-        action: 'UPDATE_COMMISSION_CONFIG',
-        entityType: 'UserCommissionConfig',
-        entityId: updated.id,
-        beforeData: existing,
-        afterData: updated,
-      });
+      await this.auditLog.createLog(
+        {
+          actorId: actor.id,
+          actorType: actor.type,
+          action: 'UPDATE_COMMISSION_CONFIG',
+          entityType: 'UserCommissionConfig',
+          entityId: updated.id,
+          beforeData: existing,
+          afterData: updated,
+        },
+        tx,
+      );
 
       return updated;
     } else {
-      const created = await this.prisma.userCommissionConfig.create({
-        data: {
-          userId,
-          assetId,
-          rebateUnit,
-          markupPips,
-          transferUnit,
-          version: 1,
-        },
+      const created = await client.userCommissionConfig.create({
+        data: { userId, assetId, rebateUnit, markupPips, transferUnit, version: 1 },
       });
 
-      await this.auditLog.createLog({
-        actorId: actor.id,
-        actorType: actor.type,
-        action: 'UPSERT_COMMISSION_CONFIG',
-        entityType: 'UserCommissionConfig',
-        entityId: created.id,
-        beforeData: null,
-        afterData: created,
-      });
+      await this.auditLog.createLog(
+        {
+          actorId: actor.id,
+          actorType: actor.type,
+          action: 'UPSERT_COMMISSION_CONFIG',
+          entityType: 'UserCommissionConfig',
+          entityId: created.id,
+          beforeData: null,
+          afterData: created,
+        },
+        tx,
+      );
 
       return created;
     }
@@ -218,7 +199,6 @@ export class CommissionConfigService {
     if (!existing) {
       throw new NotFoundException('Commission config not found');
     }
-
     if (version !== existing.version) {
       throw new ConflictException('Config has been modified by another user');
     }
@@ -231,7 +211,7 @@ export class CommissionConfigService {
     const newRebateUnit = rebateUnit ?? Number(existing.rebateUnit);
     const newMarkupPips = markupPips ?? Number(existing.markupPips);
 
-    await this.assertCanWrite(userId, assetId, newRebateUnit, newMarkupPips, actor, user.parentId === null);
+    await this.assertCanWrite(userId, assetId, newRebateUnit, newMarkupPips, actor, user.parentId === null, this.prisma);
 
     const updated = await this.prisma.userCommissionConfig.update({
       where: { userId_assetId: { userId, assetId } },

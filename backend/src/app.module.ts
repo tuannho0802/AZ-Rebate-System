@@ -10,6 +10,7 @@ import { LedgerModule } from './ledger/ledger.module';
 import { CommonModule } from './common/common.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
+import { TemplateApplyModule } from './template-apply/template-apply.module';
 
 @Module({
   imports: [
@@ -21,7 +22,8 @@ import { PrismaModule } from './prisma/prisma.module';
     CommissionConfigModule, 
     PayoutSessionModule, 
     LedgerModule, 
-    CommonModule
+    CommonModule,
+    TemplateApplyModule
   ],
   controllers: [AppController],
   providers: [AppService],
