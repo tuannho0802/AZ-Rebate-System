@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
 import { api } from '../../lib/api-client';
-import { getMockAssets, addMockAsset, getMockTemplates, addMockTemplate } from '../../lib/mock-store';
 
 type AssetCategory = 'FOREX' | 'METAL' | 'ENERGY' | 'COMMODITY' | 'INDEX' | 'SHARES' | 'CRYPTO' | 'OTHER';
 
@@ -18,18 +17,34 @@ interface User {
   createdAt: string;
 }
 
+// Khớp đúng response thật từ backend (AdminService.listAssets/createAsset/updateAsset)
 interface Asset {
   id: string;
   code: string;
   name: string;
   category: AssetCategory;
   isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  templateItems?: unknown[];
 }
 
+interface TemplateItem {
+  id?: string;
+  assetId: string;
+  rebateUnit: number;
+  markupPips: number;
+  asset?: { id: string; code: string; name: string };
+}
+
+// Khớp đúng response thật từ backend (AdminService.listTemplates/createTemplate/updateTemplate)
 interface Template {
   id: string;
   name: string;
   description?: string;
+  items: TemplateItem[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export default function AdminPage() {
@@ -38,8 +53,8 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<'users' | 'assets' | 'templates' | 'config' | 'sessions'>('users');
 
   const [users, setUsers] = useState<User[]>([]);
-  const [assets, setAssets] = useState(() => getMockAssets());
-  const [templates, setTemplates] = useState(() => getMockTemplates());
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
 
   const [newUser, setNewUser] = useState({ email: '', password: '', fullName: '', role: 'MIB' as 'MIB' | 'IB', parentId: '' });
   const [newAsset, setNewAsset] = useState({ code: '', name: '', category: 'OTHER' as AssetCategory });
@@ -56,10 +71,25 @@ export default function AdminPage() {
     }
   }, [user, router]);
 
+  const fetchAssets = useCallback(() => {
+    return api.get<Asset[]>('/admin/assets').then(setAssets).catch(console.error);
+  }, []);
+
+  const fetchTemplates = useCallback(() => {
+    return api.get<Template[]>('/admin/templates').then(setTemplates).catch(console.error);
+  }, []);
+
   useEffect(() => {
     if (activeTab === 'users') {
       api.get<User[]>('/users').then(setUsers).catch(console.error);
+    } else if (activeTab === 'assets') {
+      fetchAssets();
+    } else if (activeTab === 'templates') {
+      // Template item picker cần danh sách asset thật, nên load kèm nếu chưa có
+      if (assets.length === 0) fetchAssets();
+      fetchTemplates();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -77,9 +107,10 @@ export default function AdminPage() {
   const handleCreateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const created = await api.post<Asset>('/admin/assets', newAsset);
-      const saved = addMockAsset(created);
-      setAssets(saved);
+      await api.post<Asset>('/admin/assets', newAsset);
+      // Refetch thay vì tự ghép state cục bộ — response POST không kèm templateItems,
+      // trong khi GET list có, refetch đảm bảo state luôn khớp đúng dữ liệu thật.
+      await fetchAssets();
       setNewAsset({ code: '', name: '', category: 'OTHER' as AssetCategory });
       alert('Asset created successfully!');
     } catch (error: any) {
@@ -87,16 +118,95 @@ export default function AdminPage() {
     }
   };
 
-  const handleCreateTemplate = async (e: React.SubmitEvent<HTMLFormElement>) => {
+  const handleUpdateAsset = async (asset: Asset) => {
+    const newName = window.prompt('Tên mới:', asset.name);
+    if (newName === null || newName === asset.name) return;
+    try {
+      await api.patch<Asset>(`/admin/assets/${asset.id}`, { name: newName });
+      await fetchAssets();
+    } catch (error: any) {
+      alert(`Failed to update asset: ${error.message}`);
+    }
+  };
+
+  const handleToggleAssetActive = async (asset: Asset) => {
+    try {
+      await api.patch<Asset>(`/admin/assets/${asset.id}`, { isActive: !asset.isActive });
+      await fetchAssets();
+    } catch (error: any) {
+      alert(`Failed to update asset: ${error.message}`);
+    }
+  };
+
+  const handleDeleteAsset = async (asset: Asset) => {
+    if (!window.confirm(`Xoá asset "${asset.code}"?`)) return;
+    try {
+      await api.delete(`/admin/assets/${asset.id}`);
+      await fetchAssets();
+    } catch (error: any) {
+      // Backend chặn xoá nếu asset đang có config/payout/ledger, hoặc template item khác 0
+      alert(`Failed to delete asset: ${error.message}`);
+    }
+  };
+
+  const handleCreateTemplate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
-      const created = await api.post<Template>('/admin/templates', newTemplate);
-      const saved = addMockTemplate(created);
-      setTemplates(saved);
+      await api.post<Template>('/admin/templates', newTemplate);
+      await fetchTemplates();
       setNewTemplate({ name: '', description: '', items: [{ assetId: '', rebateUnit: 0, markupPips: 0 }] });
       alert('Template created successfully!');
     } catch (error: any) {
       alert(`Failed to create template: ${error.message}`);
+    }
+  };
+
+  const handleUpdateTemplateDescription = async (template: Template) => {
+    const newDescription = window.prompt('Mô tả mới:', template.description ?? '');
+    if (newDescription === null || newDescription === template.description) return;
+    try {
+      // Chỉ gửi description, KHÔNG gửi items -> backend giữ nguyên toàn bộ items hiện có
+      await api.patch<Template>(`/admin/templates/${template.id}`, { description: newDescription });
+      await fetchTemplates();
+    } catch (error: any) {
+      alert(`Failed to update template: ${error.message}`);
+    }
+  };
+
+  const handleUpdateTemplateItem = async (template: Template, item: TemplateItem, field: 'rebateUnit' | 'markupPips', value: number) => {
+    try {
+      // QUAN TRỌNG: rebateUnit/markupPips trong schema là kiểu Prisma `Decimal`.
+      // Khi backend trả JSON, Decimal luôn được serialize thành STRING (vd "1.0000"),
+      // dù hiển thị trong input trông như số bình thường. Nếu gửi thẳng item.rebateUnit/
+      // item.markupPips (đọc từ response GET) lên PATCH mà không ép kiểu lại, backend sẽ
+      // từ chối 400 vì @IsNumber() thấy string, không phải number — đây chính là bug
+      // "nhập 1 số là lỗi/loop" đã gặp. Luôn Number(...) cả 2 field trước khi gửi.
+      const rebateUnit = Number(field === 'rebateUnit' ? value : item.rebateUnit);
+      const markupPips = Number(field === 'markupPips' ? value : item.markupPips);
+
+      if (Number.isNaN(rebateUnit) || Number.isNaN(markupPips)) {
+        alert('Giá trị không hợp lệ, vui lòng nhập số.');
+        return;
+      }
+
+      // Chỉ gửi đúng 1 item vừa sửa — backend (bản đã fix) chỉ upsert item này,
+      // các item khác trong template giữ nguyên giá trị cũ.
+      await api.patch<Template>(`/admin/templates/${template.id}`, {
+        items: [{ assetId: item.assetId, rebateUnit, markupPips }],
+      });
+      await fetchTemplates();
+    } catch (error: any) {
+      alert(`Failed to update template item: ${error.message}`);
+    }
+  };
+
+  const handleDeleteTemplate = async (template: Template) => {
+    if (!window.confirm(`Xoá template "${template.name}"?`)) return;
+    try {
+      await api.delete(`/admin/templates/${template.id}`);
+      await fetchTemplates();
+    } catch (error: any) {
+      alert(`Failed to delete template: ${error.message}`);
     }
   };
 
@@ -232,7 +342,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Assets Section */}
+        {/* Assets Section — API thật, không còn mock */}
         {activeTab === 'assets' && (
           <div className="space-y-8">
             {/* Create Asset Form */}
@@ -279,9 +389,11 @@ export default function AdminPage() {
 
             {/* Assets List */}
             <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center mb-4">
-                <h2 className="text-xl font-bold mr-4">Asset List</h2>
-                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded">⚠️ MOCK DATA</span>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold">Asset List</h2>
+                <button onClick={() => fetchAssets()} className="text-sm text-blue-600 hover:underline">
+                  Refresh
+                </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -291,6 +403,7 @@ export default function AdminPage() {
                       <th className="px-4 py-2 text-left">Name</th>
                       <th className="px-4 py-2 text-left">Category</th>
                       <th className="px-4 py-2 text-left">Active</th>
+                      <th className="px-4 py-2 text-left">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -300,19 +413,38 @@ export default function AdminPage() {
                         <td className="px-4 py-2">{a.name}</td>
                         <td className="px-4 py-2">{a.category}</td>
                         <td className="px-4 py-2">{a.isActive ? 'Yes' : 'No'}</td>
+                        <td className="px-4 py-2 space-x-2">
+                          <button onClick={() => handleUpdateAsset(a)} className="text-blue-600 hover:underline text-sm">
+                            Sửa tên
+                          </button>
+                          <button onClick={() => handleToggleAssetActive(a)} className="text-yellow-600 hover:underline text-sm">
+                            {a.isActive ? 'Vô hiệu hoá' : 'Kích hoạt'}
+                          </button>
+                          <button onClick={() => handleDeleteAsset(a)} className="text-red-600 hover:underline text-sm">
+                            Xoá
+                          </button>
+                        </td>
                       </tr>
                     ))}
+                    {assets.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
+                          Chưa có asset nào
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
               <p className="text-gray-500 text-sm mt-4">
-                * Dùng mock-store từ localStorage — sau khi tạo mới, list sẽ được cập nhật tự động
+                * Xoá sẽ bị chặn nếu asset đang được dùng thật trong commission configs, payout
+                sessions, hoặc có template item khác 0.
               </p>
             </div>
           </div>
         )}
 
-        {/* Templates Section */}
+        {/* Templates Section — API thật, không còn mock */}
         {activeTab === 'templates' && (
           <div className="space-y-8">
             {/* Create Template Form */}
@@ -331,15 +463,13 @@ export default function AdminPage() {
                   placeholder="Description (optional)"
                   value={newTemplate.description}
                   onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
-                  className="px-3 py-2 border rounded"
+                  className="px-3 py-2 border rounded w-full"
                 />
                 <div className="border p-4 rounded space-y-2">
                   <h3 className="font-medium">Template Items</h3>
                   {newTemplate.items.map((item, idx) => (
                     <div key={idx} className="flex gap-2 items-end">
-                      <input
-                        type="text"
-                        placeholder="Asset ID"
+                      <select
                         value={item.assetId}
                         onChange={(e) => {
                           const items = [...newTemplate.items];
@@ -347,7 +477,14 @@ export default function AdminPage() {
                           setNewTemplate({ ...newTemplate, items });
                         }}
                         className="flex-1 px-3 py-2 border rounded"
-                      />
+                      >
+                        <option value="">-- Chọn Asset --</option>
+                        {assets.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} — {a.name}
+                          </option>
+                        ))}
+                      </select>
                       <input
                         type="number"
                         placeholder="Rebate Unit"
@@ -357,7 +494,7 @@ export default function AdminPage() {
                           items[idx] = { ...item, rebateUnit: parseFloat(e.target.value) || 0 };
                           setNewTemplate({ ...newTemplate, items });
                         }}
-                        className="w-24 px-3 py-2 border rounded"
+                        className="w-28 px-3 py-2 border rounded"
                       />
                       <input
                         type="number"
@@ -368,10 +505,26 @@ export default function AdminPage() {
                           items[idx] = { ...item, markupPips: parseFloat(e.target.value) || 0 };
                           setNewTemplate({ ...newTemplate, items });
                         }}
-                        className="w-24 px-3 py-2 border rounded"
+                        className="w-28 px-3 py-2 border rounded"
                       />
                     </div>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setNewTemplate({
+                        ...newTemplate,
+                        items: [...newTemplate.items, { assetId: '', rebateUnit: 0, markupPips: 0 }],
+                      })
+                    }
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    + Thêm item
+                  </button>
+                  <p className="text-gray-500 text-xs">
+                    Asset nào không liệt kê ở đây sẽ tự động có rebateUnit=0, markupPips=0 (backend tự
+                    đồng bộ đủ mọi asset hiện có).
+                  </p>
                 </div>
                 <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
                   Create Template
@@ -381,31 +534,74 @@ export default function AdminPage() {
 
             {/* Templates List */}
             <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center mb-4">
-                <h2 className="text-xl font-bold mr-4">Template List</h2>
-                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded">⚠️ MOCK DATA</span>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold">Template List</h2>
+                <button onClick={() => fetchTemplates()} className="text-sm text-blue-600 hover:underline">
+                  Refresh
+                </button>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="px-4 py-2 text-left">Name</th>
-                      <th className="px-4 py-2 text-left">Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {templates.map((t) => (
-                      <tr key={t.id} className="border-t">
-                        <td className="px-4 py-2">{t.name}</td>
-                        <td className="px-4 py-2">{t.description}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-6">
+                {templates.map((t) => (
+                  <div key={t.id} className="border rounded p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <span className="font-bold">{t.name}</span>
+                        {t.description && <span className="text-gray-500 ml-2">— {t.description}</span>}
+                      </div>
+                      <div className="space-x-2">
+                        <button
+                          onClick={() => handleUpdateTemplateDescription(t)}
+                          className="text-blue-600 hover:underline text-sm"
+                        >
+                          Sửa mô tả
+                        </button>
+                        <button onClick={() => handleDeleteTemplate(t)} className="text-red-600 hover:underline text-sm">
+                          Xoá
+                        </button>
+                      </div>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="px-2 py-1 text-left">Asset</th>
+                          <th className="px-2 py-1 text-left">Rebate Unit</th>
+                          <th className="px-2 py-1 text-left">Markup Pips</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {t.items.map((item) => (
+                          <tr key={item.assetId} className="border-t">
+                            <td className="px-2 py-1">{item.asset ? `${item.asset.code} — ${item.asset.name}` : item.assetId}</td>
+                            <td className="px-2 py-1">
+                              <input
+                                type="number"
+                                defaultValue={item.rebateUnit}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  if (val !== item.rebateUnit) handleUpdateTemplateItem(t, item, 'rebateUnit', val);
+                                }}
+                                className="w-24 px-2 py-1 border rounded"
+                              />
+                            </td>
+                            <td className="px-2 py-1">
+                              <input
+                                type="number"
+                                defaultValue={item.markupPips}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  if (val !== item.markupPips) handleUpdateTemplateItem(t, item, 'markupPips', val);
+                                }}
+                                className="w-24 px-2 py-1 border rounded"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+                {templates.length === 0 && <p className="text-gray-400 text-center py-6">Chưa có template nào</p>}
               </div>
-              <p className="text-gray-500 text-sm mt-4">
-                * Chưa có API để list/edit/delete templates — dùng mock-store từ localStorage
-              </p>
             </div>
           </div>
         )}
