@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PayoutSessionStatus } from '@prisma/client';
 import { AuditLogService } from '../audit/audit-log.service';
 import { LedgerService } from '../ledger/ledger.service';
+import { CreatePayoutSessionDto } from './dto/create-payout-session.dto';
 
 @Injectable()
 export class PayoutSessionService {
@@ -11,6 +12,49 @@ export class PayoutSessionService {
     private readonly auditLog: AuditLogService,
     private readonly ledgerService: LedgerService, // FIX #3: inject LedgerService, delegate the algorithm to it
   ) { }
+
+  /**
+   * Create a new payout session in DRAFT status.
+   */
+  async create(dto: CreatePayoutSessionDto, actorAdminId: string) {
+    const { name, note, baseVolume, sourceUserId, assetId } = dto;
+
+    // Check source user exists
+    const sourceUser = await this.prisma.user.findUnique({ where: { id: sourceUserId } });
+    if (!sourceUser) {
+      throw new NotFoundException('Source user not found');
+    }
+
+    // Check asset exists
+    const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
+    if (!asset) {
+      throw new NotFoundException('Asset not found');
+    }
+
+    const session = await this.prisma.payoutSession.create({
+      data: {
+        name,
+        note,
+        baseVolume,
+        sourceUserId,
+        assetId,
+        createdByAdminId: actorAdminId,
+        status: PayoutSessionStatus.DRAFT,
+      },
+    });
+
+    await this.auditLog.createLog({
+      actorId: actorAdminId,
+      actorType: 'ADMIN',
+      action: 'CREATE_PAYOUT_SESSION',
+      entityType: 'PayoutSession',
+      entityId: session.id,
+      beforeData: null,
+      afterData: session,
+    });
+
+    return session;
+  }
 
   /**
    * Lock a payout session (DRAFT -> LOCKED) and generate ledger rows.
@@ -92,6 +136,16 @@ export class PayoutSessionService {
       entityId: sessionId,
       beforeData,
       afterData,
+    });
+  }
+
+  /**
+   * Get payout session by ID with ledger entries.
+   */
+  async findOne(sessionId: string) {
+    return this.prisma.payoutSession.findUnique({
+      where: { id: sessionId },
+      include: { ledgerEntries: true },
     });
   }
 }
