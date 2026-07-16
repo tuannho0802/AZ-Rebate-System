@@ -27,16 +27,26 @@ interface LedgerEntry {
   calculatedValue: number;
 }
 
-interface User {
-  id: string;
-  email: string;
-  fullName?: string;
-  role: 'MIB' | 'IB';
-  isActive: boolean;
+// Helper: baseVolume / netRebate / netMarkup / netTransferUnit / calculatedValue are all
+// Prisma Decimal fields — backend always serializes them as STRING over JSON, even though
+// they display like plain numbers. Must cast with Number(...) before using .toLocaleString()
+// or any arithmetic, otherwise values render wrong or silently stay as strings.
+function normalizeSession(s: any): PayoutSession {
+  return { ...s, baseVolume: Number(s.baseVolume) };
+}
+
+function normalizeLedgerEntry(e: any): LedgerEntry {
+  return {
+    ...e,
+    netRebate: Number(e.netRebate),
+    netMarkup: Number(e.netMarkup),
+    netTransferUnit: Number(e.netTransferUnit),
+    calculatedValue: Number(e.calculatedValue),
+  };
 }
 
 export default function SessionsPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading } = useAuth();
   const router = useRouter();
   const [sessions, setSessions] = useState<PayoutSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<PayoutSession | null>(null);
@@ -51,6 +61,7 @@ export default function SessionsPage() {
   });
 
   useEffect(() => {
+    if (isLoading) return; // Đang kiểm tra cookie/token — chưa biết user thật hay chưa, đừng redirect vội
     if (!user) {
       router.push('/login');
       return;
@@ -58,18 +69,22 @@ export default function SessionsPage() {
     if (user.type !== 'admin') {
       router.push(user.role === 'MIB' ? '/mib' : '/ib');
     }
-  }, [user, router]);
+  }, [user, isLoading, router]);
 
   useEffect(() => {
+    if (isLoading || !user || user.type !== 'admin') return;
     // Load sessions on mount
-    api.get<PayoutSession[]>('/payout-sessions').then(setSessions).catch(console.error);
-  }, []);
+    api
+      .get<any[]>('/payout-sessions')
+      .then((data) => setSessions((data ?? []).map(normalizeSession)))
+      .catch(console.error);
+  }, [isLoading, user]);
 
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const created = await api.post<PayoutSession>('/payout-sessions', newSession);
-      setSessions([...sessions, created]);
+      const created = await api.post<any>('/payout-sessions', newSession);
+      setSessions([...sessions, normalizeSession(created)]);
       setNewSession({ name: '', note: '', baseVolume: 0, sourceUserId: '', assetId: '' });
       alert('Payout session created successfully!');
     } catch (error: any) {
@@ -101,14 +116,15 @@ export default function SessionsPage() {
 
   const loadSessionDetails = async (id: string) => {
     try {
-      const session = await api.get<PayoutSession & { ledgerEntries: LedgerEntry[] }>(`/payout-sessions/${id}`);
-      setSelectedSession(session);
-      setLedgerEntries(session.ledgerEntries);
+      const session = await api.get<any & { ledgerEntries: any[] }>(`/payout-sessions/${id}`);
+      setSelectedSession(normalizeSession(session));
+      setLedgerEntries((session.ledgerEntries ?? []).map(normalizeLedgerEntry));
     } catch (error: any) {
       alert(`Failed to load session details: ${error.message}`);
     }
   };
 
+  if (isLoading) return null;
   if (!user || user.type !== 'admin') return null;
 
   return (

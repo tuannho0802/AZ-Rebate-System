@@ -140,6 +140,19 @@ export class PayoutSessionService {
   }
 
   /**
+   * List payout sessions, newest first. Optional status filter (DRAFT/LOCKED/COMPLETED)
+   * so the frontend can show e.g. only DRAFT sessions still awaiting lock.
+   * Does not include ledgerEntries here (list view) — use findOne(id) for full detail,
+   * ledger rows can be large for sessions with many beneficiaries.
+   */
+  async findAll(status?: PayoutSessionStatus) {
+    return this.prisma.payoutSession.findMany({
+      where: status ? { status } : undefined,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
    * Get payout session by ID with ledger entries.
    */
   async findOne(sessionId: string) {

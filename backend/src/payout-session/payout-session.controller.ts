@@ -1,9 +1,10 @@
-import { Controller, Post, Body, Param, UseGuards, Get } from '@nestjs/common';
+import { Controller, Post, Body, Param, Query, UseGuards, Get } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AdminOnlyGuard } from '../common/guards/admin-only.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CreatePayoutSessionDto } from './dto/create-payout-session.dto';
 import { PayoutSessionService } from './payout-session.service';
+import { PayoutSessionStatus } from '@prisma/client';
 
 export interface RequestActor {
   id: string;
@@ -13,7 +14,12 @@ export interface RequestActor {
 @Controller('payout-sessions')
 @UseGuards(JwtAuthGuard, AdminOnlyGuard)
 export class PayoutSessionController {
-  constructor(private readonly payoutSessionService: PayoutSessionService) {}
+  constructor(private readonly payoutSessionService: PayoutSessionService) { }
+
+  @Get()
+  findAll(@Query('status') status?: PayoutSessionStatus) {
+    return this.payoutSessionService.findAll(status);
+  }
 
   @Post()
   create(@Body() dto: CreatePayoutSessionDto, @CurrentUser() user: RequestActor) {
