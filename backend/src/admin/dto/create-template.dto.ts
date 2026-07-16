@@ -1,7 +1,7 @@
 import { IsArray, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
-class TemplateItemDto {
+export class TemplateItemDto {
   @IsString()
   @IsNotEmpty()
   assetId: string;

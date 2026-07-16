@@ -4,7 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
 import { api } from '../../lib/api-client';
+import { getMockAssets, addMockAsset, getMockTemplates, addMockTemplate } from '../../lib/mock-store';
+
 type AssetCategory = 'FOREX' | 'METAL' | 'ENERGY' | 'COMMODITY' | 'INDEX' | 'SHARES' | 'CRYPTO' | 'OTHER';
+
 interface User {
   id: string;
   email: string;
@@ -32,11 +35,11 @@ interface Template {
 export default function AdminPage() {
   const { user, logout } = useAuth();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'users' | 'assets' | 'templates'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'assets' | 'templates' | 'config' | 'sessions'>('users');
 
   const [users, setUsers] = useState<User[]>([]);
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [assets, setAssets] = useState(() => getMockAssets());
+  const [templates, setTemplates] = useState(() => getMockTemplates());
 
   const [newUser, setNewUser] = useState({ email: '', password: '', fullName: '', role: 'MIB' as 'MIB' | 'IB', parentId: '' });
   const [newAsset, setNewAsset] = useState({ code: '', name: '', category: 'OTHER' as AssetCategory });
@@ -75,7 +78,8 @@ export default function AdminPage() {
     e.preventDefault();
     try {
       const created = await api.post<Asset>('/admin/assets', newAsset);
-      setAssets([...assets, created]);
+      const saved = addMockAsset(created);
+      setAssets(saved);
       setNewAsset({ code: '', name: '', category: 'OTHER' as AssetCategory });
       alert('Asset created successfully!');
     } catch (error: any) {
@@ -87,7 +91,8 @@ export default function AdminPage() {
     e.preventDefault();
     try {
       const created = await api.post<Template>('/admin/templates', newTemplate);
-      setTemplates([...templates, created]);
+      const saved = addMockTemplate(created);
+      setTemplates(saved);
       setNewTemplate({ name: '', description: '', items: [{ assetId: '', rebateUnit: 0, markupPips: 0 }] });
       alert('Template created successfully!');
     } catch (error: any) {
@@ -128,6 +133,18 @@ export default function AdminPage() {
             className={`px-6 py-2 rounded-lg font-medium ${activeTab === 'templates' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
           >
             Templates
+          </button>
+          <button
+            onClick={() => setActiveTab('config')}
+            className={`px-6 py-2 rounded-lg font-medium ${activeTab === 'config' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+          >
+            Commission Configs
+          </button>
+          <button
+            onClick={() => setActiveTab('sessions')}
+            className={`px-6 py-2 rounded-lg font-medium ${activeTab === 'sessions' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+          >
+            Payout Sessions
           </button>
         </div>
 
@@ -262,7 +279,10 @@ export default function AdminPage() {
 
             {/* Assets List */}
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Asset List</h2>
+              <div className="flex items-center mb-4">
+                <h2 className="text-xl font-bold mr-4">Asset List</h2>
+                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded">⚠️ MOCK DATA</span>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -286,7 +306,7 @@ export default function AdminPage() {
                 </table>
               </div>
               <p className="text-gray-500 text-sm mt-4">
-                * Chưa có API để list/edit/delete assets — chỉ có POST /admin/assets
+                * Dùng mock-store từ localStorage — sau khi tạo mới, list sẽ được cập nhật tự động
               </p>
             </div>
           </div>
@@ -361,7 +381,10 @@ export default function AdminPage() {
 
             {/* Templates List */}
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Template List</h2>
+              <div className="flex items-center mb-4">
+                <h2 className="text-xl font-bold mr-4">Template List</h2>
+                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded">⚠️ MOCK DATA</span>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -381,8 +404,44 @@ export default function AdminPage() {
                 </table>
               </div>
               <p className="text-gray-500 text-sm mt-4">
-                * Chưa có API để list/edit/delete templates — chỉ có POST /admin/templates
+                * Chưa có API để list/edit/delete templates — dùng mock-store từ localStorage
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Commission Configs Section */}
+        {activeTab === 'config' && (
+          <div className="space-y-8">
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Commission Configs</h2>
+              <p className="text-gray-600 mb-4">
+                Commission Configs được quản lý tại trang riêng để xử lý tree/children hierarchy.
+              </p>
+              <a
+                href="/config"
+                className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                Open Commission Configs
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* Payout Sessions Section */}
+        {activeTab === 'sessions' && (
+          <div className="space-y-8">
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Payout Sessions</h2>
+              <p className="text-gray-600 mb-4">
+                Payout Sessions được quản lý tại trang riêng với state machine (DRAFT → LOCKED → COMPLETED).
+              </p>
+              <a
+                href="/sessions"
+                className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                Open Payout Sessions
+              </a>
             </div>
           </div>
         )}

@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAssetDto } from './dto/create-asset.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
+import { UpdateAssetDto } from './dto/update-asset.dto';
+import { UpdateTemplateDto } from './dto/update-template.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
@@ -45,6 +47,81 @@ export class AdminService {
     });
   }
 
+  async listAssets() {
+    return this.prisma.asset.findMany({
+      include: {
+        templateItems: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async updateAsset(id: string, dto: UpdateAssetDto) {
+    const existing = await this.prisma.asset.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Asset not found');
+    }
+
+    // Kiểm tra nếu asset đang được dùng trong commission configs hoặc payout sessions
+    const isUsed = await this.prisma.$transaction(async (tx) => {
+      const configCount = await tx.userCommissionConfig.count({
+        where: { assetId: id },
+      });
+      const payoutCount = await tx.payoutSession.count({
+        where: { assetId: id },
+      });
+      return { configCount, payoutCount };
+    });
+
+    if (isUsed.configCount > 0 || isUsed.payoutCount > 0) {
+      throw new BadRequestException(
+        `Cannot update asset: referenced by ${isUsed.configCount} configs and ${isUsed.payoutCount} payout sessions`
+      );
+    }
+
+    return this.prisma.asset.update({
+      where: { id },
+      data: {
+        ...(dto.code !== undefined && { code: dto.code }),
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.category !== undefined && { category: dto.category }),
+        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+      },
+    });
+  }
+
+  async deleteAsset(id: string) {
+    const existing = await this.prisma.asset.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Asset not found');
+    }
+
+    // Kiểm tra ràng buộc khoá ngoại trước khi xoá
+    const isUsed = await this.prisma.$transaction(async (tx) => {
+      const configCount = await tx.userCommissionConfig.count({
+        where: { assetId: id },
+      });
+      const payoutCount = await tx.payoutSession.count({
+        where: { assetId: id },
+      });
+      const templateItemCount = await tx.templateItem.count({
+        where: { assetId: id },
+      });
+      const ledgerCount = await tx.commissionLedger.count({
+        where: { assetId: id },
+      });
+      return { configCount, payoutCount, templateItemCount, ledgerCount };
+    });
+
+    if (isUsed.configCount > 0 || isUsed.payoutCount > 0 || isUsed.templateItemCount > 0 || isUsed.ledgerCount > 0) {
+      throw new BadRequestException(
+        `Cannot delete asset: referenced by ${isUsed.configCount} configs, ${isUsed.payoutCount} payout sessions, ${isUsed.templateItemCount} template items, and ${isUsed.ledgerCount} ledger entries`
+      );
+    }
+
+    return this.prisma.asset.delete({ where: { id } });
+  }
+
   async createTemplate(dto: CreateTemplateDto, adminId: string) {
     const existing = await this.prisma.template.findUnique({ where: { name: dto.name } });
     if (existing) {
@@ -78,6 +155,89 @@ export class AdminService {
       include: {
         items: true,
       },
+    });
+  }
+
+  async listTemplates() {
+    return this.prisma.template.findMany({
+      include: {
+        items: {
+          include: {
+            asset: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async updateTemplate(id: string, dto: UpdateTemplateDto) {
+    const existing = await this.prisma.template.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Template not found');
+    }
+
+    // Nếu items được cung cấp, replace toàn bộ items cũ
+    if (dto.items !== undefined) {
+      // validate if all items have non-negative rebateUnit and markupPips
+      for (const item of dto.items) {
+        if (item.rebateUnit < 0 || item.markupPips < 0) {
+          throw new BadRequestException('rebateUnit and markupPips must be non-negative');
+        }
+      }
+
+      const allAssets = await this.prisma.asset.findMany({ select: { id: true } });
+      const providedAssetIds = new Set(dto.items.map((i) => i.assetId));
+      const missingItems = allAssets
+        .filter((a) => !providedAssetIds.has(a.id))
+        .map((a) => ({ assetId: a.id, rebateUnit: 0, markupPips: 0 }));
+
+      return this.prisma.template.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.description !== undefined && { description: dto.description }),
+          items: {
+            deleteMany: {},
+            create: [...dto.items, ...missingItems],
+          },
+        },
+        include: {
+          items: {
+            include: {
+              asset: true,
+            },
+          },
+        },
+      });
+    }
+
+    // Nếu chỉ update metadata, không chạm items
+    return this.prisma.template.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+      },
+      include: {
+        items: {
+          include: {
+            asset: true,
+          },
+        },
+      },
+    });
+  }
+
+  async deleteTemplate(id: string) {
+    const existing = await this.prisma.template.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Template not found');
+    }
+
+    // TemplateItem sẽ bị cascade delete khi template bị delete
+    return this.prisma.template.delete({
+      where: { id },
     });
   }
 
