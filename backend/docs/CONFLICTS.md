@@ -9,3 +9,4 @@
 7. **Hiệu năng cây lớn**: hiện dùng thuần `parentId` + Recursive CTE. Nếu sau này số user lớn (>chục nghìn) và cần load cây nhiều lần, cân nhắc thêm bảng closure table hoặc materialized path — **để sau, không làm ở phase này** theo yêu cầu người dùng.
 8. **[CẦN XÁC NHẬN] GAUCNH**: chưa rõ nghĩa nghiệp vụ, seed tạm với category OTHER, tên hiển thị = code. Cần người dùng xác nhận lại tên hiển thị & category chính xác trước khi dùng ở môi trường thật.
 9. **CommissionLedger sau khi COMPLETED**: không cho update/delete — enforce ở service layer (kiểm tra `PayoutSession.status` trước khi cho phép ghi thêm ledger entry).
+10. **[ĐÃ XÁC NHẬN]** Config gốc của MIB (root, `parentId = null`) chỉ Admin được tạo/sửa — MIB không tự set hoặc tự nâng trần config của chính mình. Rule "≤ cha" (mục 1) không áp dụng cho root vì không có cha, nhưng đổi lại bị khoá quyền ghi chỉ cho Admin.
