@@ -10,7 +10,7 @@ export class SubtreeGuard implements CanActivate {
     const user = request.user;
     
     // Admin can access everything
-    if (user.type === 'admin') {
+    if (user.type === 'ADMIN') {
       return true;
     }
 

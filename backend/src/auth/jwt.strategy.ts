@@ -18,7 +18,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    // giữ nguyên phần validate() hiện có của bạn bên dưới, không đổi gì ở đây
-    return payload;
+    return {
+      id: payload.sub,
+      email: payload.email,
+      type: payload.type === 'admin' ? 'ADMIN' : 'USER',
+      role: payload.role,
+    };
   }
 }
