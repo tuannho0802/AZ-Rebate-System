@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
 import { api } from '../../lib/api-client';
+import CommissionManager from '../../components/commission-manager';
 
 interface User {
   id: string;
@@ -70,14 +71,16 @@ export default function MibPage() {
       <div className="max-w-7xl mx-auto px-6 py-8">
         <div className="mb-6">
           <p className="text-gray-700">
-            <strong>Welcome, {user.email}</strong> — MIB Dashboard (Read-Only)
+            <strong>Welcome, {user.email}</strong> — MIB Dashboard
           </p>
           <p className="text-sm text-gray-500">
-            * Xem toàn bộ cây con cháu của chính mình qua subtree. Không có nút sửa/xoá ở đây.
+            * Xem toàn bộ cây con cháu của chính mình qua subtree (view-only, mọi cấp). Phần quản lý/CRUD
+            bên dưới chỉ áp dụng cho <strong>con trực tiếp (Lv1)</strong> — đúng quy tắc "LvN CRUD cho
+            LvN+1".
           </p>
         </div>
 
-        {/* Subtree Section */}
+        {/* Subtree Section — KHÔNG THAY ĐỔI, giữ nguyên view-only cho toàn bộ cây */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-bold mb-4">Your Subtree (Recursive)</h2>
           <p className="text-sm text-gray-500 mb-4">
@@ -131,17 +134,8 @@ export default function MibPage() {
           )}
         </div>
 
-        {/* Commission Config Section (Placeholder) */}
-        <div className="bg-yellow-50 rounded-lg shadow-md p-6 mt-6">
-          <h3 className="font-bold text-yellow-800 mb-2">Commission Config (Placeholder)</h3>
-          <p className="text-sm text-yellow-700">
-            * CHƯA CÓ API xác nhận cho commission config. Placeholder ở đây vì backend đã có
-            <code> /commission-configs</code> route nhưng chưa được test trong phase này.
-          </p>
-          <p className="text-sm text-yellow-700 mt-2">
-            Khi backend có API rõ ràng chocommission config, UI sẽ được bổ sung.
-          </p>
-        </div>
+        {/* Commission Config + Account Management — chỉ CRUD được con trực tiếp (Lv1) */}
+        <CommissionManager />
       </div>
     </div>
   );
