@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
 import { api } from '../../lib/api-client';
-import { AssetCategory } from '@prisma/client';
-
+type AssetCategory = 'FOREX' | 'METAL' | 'ENERGY' | 'COMMODITY' | 'INDEX' | 'SHARES' | 'CRYPTO' | 'OTHER';
 interface User {
   id: string;
   email: string;
@@ -40,7 +39,7 @@ export default function AdminPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
 
   const [newUser, setNewUser] = useState({ email: '', password: '', fullName: '', role: 'MIB' as 'MIB' | 'IB', parentId: '' });
-  const [newAsset, setNewAsset] = useState({ code: '', name: '', category: AssetCategory.OTHER });
+  const [newAsset, setNewAsset] = useState({ code: '', name: '', category: 'OTHER' as AssetCategory });
   const [newTemplate, setNewTemplate] = useState({ name: '', description: '', items: [{ assetId: '', rebateUnit: 0, markupPips: 0 }] });
 
   useEffect(() => {
@@ -77,14 +76,14 @@ export default function AdminPage() {
     try {
       const created = await api.post<Asset>('/admin/assets', newAsset);
       setAssets([...assets, created]);
-      setNewAsset({ code: '', name: '', category: AssetCategory.OTHER });
+      setNewAsset({ code: '', name: '', category: 'OTHER' as AssetCategory });
       alert('Asset created successfully!');
     } catch (error: any) {
       alert(`Failed to create asset: ${error.message}`);
     }
   };
 
-  const handleCreateTemplate = async (e: React.FormEvent) => {
+  const handleCreateTemplate = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
       const created = await api.post<Template>('/admin/templates', newTemplate);
