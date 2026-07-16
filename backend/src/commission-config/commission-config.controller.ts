@@ -13,14 +13,14 @@ export interface RequestActor {
 @Controller('commission-configs')
 @UseGuards(JwtAuthGuard)
 export class CommissionConfigController {
-  constructor(private readonly commissionConfigService: CommissionConfigService) {}
+  constructor(private readonly commissionConfigService: CommissionConfigService) { }
 
   @Post()
   upsert(@Body() dto: UpsertConfigDto, @CurrentUser() user: RequestActor) {
     return this.commissionConfigService.upsert(dto, user);
   }
 
-  @Patch(':userId-:assetId')
+  @Patch(':userId/:assetId')
   update(
     @Param('userId') userId: string,
     @Param('assetId') assetId: string,
