@@ -281,44 +281,27 @@ export default function CommissionManager() {
     document.getElementById('config-forms')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  // ---- Apply a Template to a direct child: loops POST /commission-configs per item ----
+  // Dùng endpoint thật POST /templates/:templateId/apply/:userId — chạy
+  // trong 1 transaction ở backend (xem template-apply.service.ts), rollback
+  // toàn bộ nếu 1 asset lỗi (vd vượt cap). An toàn hơn hẳn cách cũ là tự lặp
+  // gọi POST /commission-configs từng asset ở client (dễ áp dở dang nếu giữa
+  // chừng có asset lỗi).
   const handleApplyTemplate = async () => {
     if (!selectedTemplateId || !applyTargetUserId) {
       alert('Vui lòng chọn Template và User (con trực tiếp) để áp dụng');
       return;
     }
-    const template = templates.find((t) => t.id === selectedTemplateId);
-    if (!template) return;
-
     setApplying(true);
-    const results: { assetCode: string; ok: boolean; reason?: string }[] = [];
-
-    for (const item of template.items) {
-      const assetCode = assets.find((a) => a.id === item.assetId)?.code ?? item.assetId.slice(0, 8);
-      try {
-        await api.post('/commission-configs', {
-          userId: applyTargetUserId,
-          assetId: item.assetId,
-          rebateUnit: Number(item.rebateUnit),
-          markupPips: Number(item.markupPips),
-        });
-        results.push({ assetCode, ok: true });
-      } catch (error: any) {
-        results.push({ assetCode, ok: false, reason: error.message });
-      }
+    try {
+      const applied = await api.post<any[]>(`/templates/${selectedTemplateId}/apply/${applyTargetUserId}`, {});
+      alert(`Áp dụng Template thành công cho ${applied.length} asset!`);
+      if (selectedAssetId) loadChildrenConfig(selectedAssetId);
+    } catch (error: any) {
+      // Backend rollback toàn bộ nếu 1 item lỗi — message đã kèm rõ assetId nào gây lỗi
+      alert(`Áp dụng thất bại: ${error.message}`);
+    } finally {
+      setApplying(false);
     }
-
-    setApplying(false);
-    const okCount = results.filter((r) => r.ok).length;
-    const failLines = results
-      .filter((r) => !r.ok)
-      .map((r) => `- ${r.assetCode}: ${r.reason}`)
-      .join('\n');
-    alert(
-      `Áp dụng Template xong: ${okCount}/${results.length} asset thành công.` +
-        (failLines ? `\n\nCác asset thất bại:\n${failLines}` : '')
-    );
-    if (selectedAssetId) loadChildrenConfig(selectedAssetId);
   };
 
   if (!ownId) return null;
@@ -643,9 +626,9 @@ export default function CommissionManager() {
           </button>
         </div>
         <p className="text-sm text-gray-500">
-          Sẽ gọi lần lượt <code>POST /commission-configs</code> cho từng asset trong template — asset nào
-          vượt quá cap (giá trị hiện tại của bạn) sẽ báo lỗi riêng cho asset đó, các asset khác vẫn được áp
-          dụng bình thường.
+          Gọi <code>POST /templates/:templateId/apply/:userId</code> — chạy trong 1 transaction ở
+          backend. Nếu bất kỳ asset nào trong template vượt cap (giá trị hiện tại của bạn), TOÀN BỘ
+          request bị rollback và không asset nào được áp dụng — không còn tình trạng áp dở dang.
         </p>
       </div>
     </div>
