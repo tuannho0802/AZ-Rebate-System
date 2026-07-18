@@ -4,7 +4,7 @@ import { AuditLogService } from '../audit/audit-log.service';
 import { PaginationDto } from '../common/pagination/pagination.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { Role, User } from '@prisma/client';
+import { Role, User, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 /**
@@ -55,13 +55,17 @@ export class UsersService {
 
     /**
      * GET /users — Admin thấy toàn bộ.
-     * [DA SUA 16/07/2026] Trước đây MOI non-admin đều thấy toàn bộ subtree của
-     * mình (kể cả IB). Giờ tách theo role:
-     *   - MIB (root, parentId = null): vẫn thấy toàn bộ cây của mình (đệ quy).
-     *   - IB (không phải root): CHỈ thấy chính mình + con trực tiếp — không
-     *     còn thấy cháu/chắt như trước.
+     * MIB (root, parentId = null): thấy toàn bộ cây của mình (đệ quy).
+     * IB (không phải root): CHỈ thấy chính mình + con trực tiếp.
+     *
+     * [SUA — Bug #2]: thêm optional `parentId` filter, áp dụng SAU khi đã tính
+     * xong `visibleIds` theo role — nghĩa là filter này chỉ THU HẸP thêm trong
+     * đúng phạm vi actor vốn đã được phép xem, không mở rộng quyền. Dùng để
+     * FE lấy đúng "con trực tiếp của tôi" qua `GET /users?parentId=<actor.id>`
+     * mà không phải tự lọc client-side từ 1 trang giới hạn (an toàn hơn khi
+     * subtree có nhiều hơn `limit` user).
      */
-    async findAll(pagination: PaginationDto, actor: RequestActor): Promise<User[]> {
+    async findAll(pagination: PaginationDto, actor: RequestActor, parentId?: string): Promise<User[]> {
         const { page = 1, limit = 20, sort } = pagination;
         const take = Math.min(limit, 100);
         const skip = (page - 1) * take;
@@ -69,6 +73,7 @@ export class UsersService {
 
         if (this.isAdmin(actor)) {
             return this.prisma.user.findMany({
+                where: parentId ? { parentId } : undefined,
                 skip,
                 take,
                 orderBy: { [orderField]: 'desc' },
@@ -94,8 +99,16 @@ export class UsersService {
             visibleIds = [actor.id, ...children.map((c) => c.id)];
         }
 
+        const where: Prisma.UserWhereInput = { id: { in: visibleIds } };
+        if (parentId) {
+            // Vi visibleIds da gioi han dung pham vi actor duoc xem, them dieu
+            // kien parentId o day khong the "vuot rao" ra ngoai pham vi do —
+            // chi loc tiep trong tap da duoc phep xem.
+            where.parentId = parentId;
+        }
+
         return this.prisma.user.findMany({
-            where: { id: { in: visibleIds } },
+            where,
             skip,
             take,
             orderBy: { [orderField]: 'desc' },
@@ -117,12 +130,8 @@ export class UsersService {
     /**
      * POST /users — tạo MIB (root) hoặc IB.
      * - dto.parentId undefined => tạo MIB: CHỈ Admin được phép, role bắt buộc = MIB.
-     * - dto.parentId có giá trị => tạo IB:
-     *   [DA SUA 16/07/2026] Trước đây actor được phép nếu parentId nằm BẤT KỲ
-     *   ĐÂU trong subtree của actor (nhiều cấp). Giờ SIẾT LẠI: actor phải
-     *   CHÍNH LÀ parentId đó (tức actor.id === dto.parentId) — chỉ cha trực
-     *   tiếp mới tạo được con, đồng nhất với rule "LvN chỉ quản LvN+1" áp
-     *   dụng cho mọi cấp kể cả MIB. Admin vẫn tạo được cho bất kỳ ai.
+     * - dto.parentId có giá trị => tạo IB: actor phải CHÍNH LÀ parentId đó (chỉ
+     *   cha trực tiếp mới tạo được con). Admin vẫn tạo được cho bất kỳ ai.
      */
     async create(dto: CreateUserDto, actor: RequestActor): Promise<User> {
         const isRoot = !dto.parentId;
@@ -143,8 +152,6 @@ export class UsersService {
                 throw new BadRequestException(`parentId ${dto.parentId} does not exist`);
             }
             if (!this.isAdmin(actor)) {
-                // [SUA] chi CHA TRUC TIEP moi duoc tao con - khong con cho phep
-                // "parentId nam trong subtree cua actor" (nhay nhieu cap).
                 if (dto.parentId !== actor.id) {
                     throw new ForbiddenException('You can only create a user directly under yourself');
                 }
@@ -179,10 +186,7 @@ export class UsersService {
 
     /**
      * PATCH /users/:id — chỉ sửa fullName / isActive (no hard delete).
-     * DirectParentGuard đã enforce quyền ở controller (chỉ cha trực tiếp,
-     * chặn tự sửa); ở đây chỉ ghi audit đầy đủ before/after, đặc biệt quan
-     * trọng khi toggle isActive vì ảnh hưởng Net-Pips calculation
-     * (PayoutSessionService bỏ qua node inactive theo rule 3.5).
+     * DirectParentGuard đã enforce quyền ở controller.
      */
     async update(id: string, dto: UpdateUserDto, actor: RequestActor): Promise<User> {
         const before = await this.findOne(id); // ném 404 nếu không tồn tại
@@ -210,8 +214,7 @@ export class UsersService {
 
     /**
      * GET /users/:id/subtree — trả về toàn bộ cây con kèm depth, dùng CTE đi xuống.
-     * SubtreeViewGuard đã enforce quyền ở controller (chỉ Admin hoặc MIB tự
-     * xem cây của chính mình).
+     * SubtreeViewGuard đã enforce quyền ở controller.
      */
     async getSubtree(id: string): Promise<{ id: string; depth: number }[]> {
         const root = await this.prisma.user.findUnique({ where: { id } });

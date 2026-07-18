@@ -12,16 +12,6 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { UserViewGuard } from '../common/guards/user-view.guard';
 import { DirectParentGuard } from '../common/guards/direct-parent.guard';
 import { SubtreeViewGuard } from '../common/guards/subtree-view.guard';
-// [DA SUA 16/07/2026] SubtreeGuard cu (cho phep tu xem + xem toan bo cay con
-// chau cho MOI route) da bi thay the boi 3 guard rieng biet, vi 3 route nay
-// co ban chat quyen khac nhau theo rule moi:
-//   - GET /:id           -> UserViewGuard    (MIB: full cay minh; IB: chi con truc tiep)
-//   - PATCH /:id         -> DirectParentGuard (chi cha TRUC TIEP moi sua duoc, tu sua = 403)
-//   - GET /:id/subtree   -> SubtreeViewGuard  (CHI Admin + MIB(chinh minh); IB luon 403)
-// AdminOnlyGuard van KHONG dung o route POST vi ly do cu: logic phan biet
-// "tao MIB (root) chi Admin" vs "tao IB thi Admin hoac CHA TRUC TIEP" nam
-// trong UsersService.create() (da siet lai thanh "chi cha truc tiep", xem
-// comment trong service).
 import { PaginationDto } from '../common/pagination/pagination.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -34,17 +24,29 @@ export class UsersController {
     constructor(private readonly usersService: UsersService) { }
 
     /**
-     * GET /users?page=&limit=&sort=
+     * GET /users?page=&limit=&sort=&parentId=
      * Admin: thấy toàn bộ user trong hệ thống.
      * MIB (root): thấy toàn bộ cây của chính mình (đệ quy mọi cấp), không thấy
      * nhánh MIB khác.
      * IB (không phải root): chỉ thấy chính mình + con trực tiếp (không thấy cháu).
      * (Toàn bộ logic filter theo role nằm trong UsersService.findAll(), vì cần
      * phân trang nên không hợp để làm guard.)
+     *
+     * [SUA — Bug #2 trong handoff]: thêm optional query `parentId` để backend
+     * lọc đúng CON TRỰC TIẾP của 1 user, thay vì bắt frontend tự lọc client-side
+     * từ 1 trang /users giới hạn (tối đa 100) — cách cũ có thể thiếu con trực
+     * tiếp âm thầm nếu subtree/hệ thống có >100 user. Filter này chạy SAU khi
+     * đã tính visibleIds theo role trong service, nên không mở rộng thêm phạm
+     * vi xem được — chỉ thu hẹp thêm trong đúng phạm vi actor vốn đã được phép
+     * xem.
      */
     @Get()
-    findAll(@Query() pagination: PaginationDto, @CurrentUser() user: any) {
-        return this.usersService.findAll(pagination, user);
+    findAll(
+        @Query() pagination: PaginationDto,
+        @CurrentUser() user: any,
+        @Query('parentId') parentId?: string,
+    ) {
+        return this.usersService.findAll(pagination, user, parentId);
     }
 
     /**
@@ -91,8 +93,9 @@ export class UsersController {
     /**
      * GET /users/:id/subtree
      * Trả về toàn bộ cây con (subtree) của :id — dùng Recursive CTE.
-     * Rule: CHỈ Admin (xem bất kỳ ai) hoặc MIB root xem CHÍNH cây của mình.
-     * IB không được xem subtree của bất kỳ ai, kể cả chính mình.
+     * Rule: Admin (xem bất kỳ ai) hoặc MIB root xem cây bắt đầu từ BẤT KỲ user
+     * nào NẰM TRONG cây của chính mình (đã nới từ "chỉ chính mình" theo yêu cầu
+     * ngày 16/07/2026 — xem SubtreeViewGuard).
      */
     @Get(':id/subtree')
     @UseGuards(SubtreeViewGuard)
