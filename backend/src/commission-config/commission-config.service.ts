@@ -296,6 +296,13 @@ export class CommissionConfigService {
   /**
    * Xem 1 cap: chinh minh + cac con TRUC TIEP kem config. Actor phai la
    * chinh userId nay (tu xem cay cua minh) hoac Admin.
+   *
+   * [SUA — theo BACKEND_AUDIT.md GAP #2]: truoc day KHONG tra `version` cho
+   * ca `self` lan `children`, khien UI "Update Existing Config" (can version
+   * de optimistic lock) khong dung duoc tu MIB/IB — gui `parseInt(undefined)`
+   * = NaN, backend tu choi 400. Gio tra dung version tu DB (null neu user do
+   * chua co config nao cho asset nay — nghia la phai dung form "Create/Set
+   * Config" (POST, khong can version) truoc, chua the "Update").
    */
   async getDirectChildren(userId: string, assetId: string, actor: RequestActor) {
     if (actor.type !== 'ADMIN' && actor.id !== userId) {
@@ -324,6 +331,7 @@ export class CommissionConfigService {
         email: self.email,
         rebateUnit: selfCfg ? Number(selfCfg.rebateUnit) : null,
         markupPips: selfCfg ? Number(selfCfg.markupPips) : null,
+        version: selfCfg ? selfCfg.version : null,
       },
       children: children.map((c) => {
         const cfg = cfgMap.get(c.id);
@@ -334,6 +342,7 @@ export class CommissionConfigService {
           isActive: c.isActive,
           rebateUnit: cfg ? Number(cfg.rebateUnit) : null,
           markupPips: cfg ? Number(cfg.markupPips) : null,
+          version: cfg ? cfg.version : null,
         };
       }),
     };
