@@ -48,7 +48,7 @@ interface Template {
 }
 
 export default function AdminPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading } = useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'users' | 'assets' | 'templates' | 'config' | 'sessions'>('users');
 
@@ -59,8 +59,11 @@ export default function AdminPage() {
   const [newUser, setNewUser] = useState({ email: '', password: '', fullName: '', role: 'MIB' as 'MIB' | 'IB', parentId: '' });
   const [newAsset, setNewAsset] = useState({ code: '', name: '', category: 'OTHER' as AssetCategory });
   const [newTemplate, setNewTemplate] = useState({ name: '', description: '', items: [{ assetId: '', rebateUnit: 0, markupPips: 0 }] });
+  const [applyTemplateForm, setApplyTemplateForm] = useState({ templateId: '', userId: '' });
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
 
   useEffect(() => {
+    if (isLoading) return; // Đang kiểm tra cookie/token — chưa biết user thật hay chưa, đừng redirect vội
     if (!user) {
       router.push('/login');
       return;
@@ -69,7 +72,7 @@ export default function AdminPage() {
       // Redirect based on role if not admin
       router.push(user.role === 'MIB' ? '/mib' : '/ib');
     }
-  }, [user, router]);
+  }, [user, isLoading, router]);
 
   const fetchAssets = useCallback(() => {
     return api.get<Asset[]>('/admin/assets').then(setAssets).catch(console.error);
@@ -80,6 +83,7 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
+    if (isLoading || !user || user.type !== 'admin') return;
     if (activeTab === 'users') {
       api.get<User[]>('/users').then(setUsers).catch(console.error);
     } else if (activeTab === 'assets') {
@@ -88,9 +92,14 @@ export default function AdminPage() {
       // Template item picker cần danh sách asset thật, nên load kèm nếu chưa có
       if (assets.length === 0) fetchAssets();
       fetchTemplates();
+    } else if (activeTab === 'config') {
+      // Form "Áp dụng Template" cần cả danh sách User (mọi cấp, kể cả MIB root)
+      // và Template — load nếu chưa có sẵn.
+      if (users.length === 0) api.get<User[]>('/users').then(setUsers).catch(console.error);
+      if (templates.length === 0) fetchTemplates();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
+  }, [activeTab, isLoading, user]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,6 +219,33 @@ export default function AdminPage() {
     }
   };
 
+  // Admin áp Template cho BẤT KỲ user nào, kể cả MIB root — vì actor là Admin
+  // nên assertCanWrite() bên backend bỏ qua hoàn toàn cap/orphan check (xem
+  // commission-config.service.ts: `if (actor.type === 'ADMIN') return;`).
+  // Đây là cách "mồi" config gốc cho MIB, để MIB sau đó tự áp Template được
+  // cho con trực tiếp của mình (orphan check yêu cầu cha trực tiếp phải có
+  // config trước).
+  const handleApplyTemplateAdmin = async () => {
+    if (!applyTemplateForm.templateId || !applyTemplateForm.userId) {
+      alert('Vui lòng chọn Template và User');
+      return;
+    }
+    setApplyingTemplate(true);
+    try {
+      const applied = await api.post<any[]>(
+        `/templates/${applyTemplateForm.templateId}/apply/${applyTemplateForm.userId}`,
+        {}
+      );
+      alert(`Áp dụng Template thành công cho ${applied.length} asset!`);
+      setApplyTemplateForm({ templateId: '', userId: '' });
+    } catch (error: any) {
+      alert(`Áp dụng thất bại: ${error.message}`);
+    } finally {
+      setApplyingTemplate(false);
+    }
+  };
+
+  if (isLoading) return null;
   if (!user || user.type !== 'admin') return null;
 
   return (
@@ -620,6 +656,62 @@ export default function AdminPage() {
               >
                 Open Commission Configs
               </a>
+            </div>
+
+            {/* Apply Template — chỉ Admin mới bypass được cap/orphan check, dùng
+                để "mồi" config gốc cho MIB (root), hoặc set nhanh cho bất kỳ ai. */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Áp dụng Template</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Admin có thể áp Template cho <strong>bất kỳ user nào, kể cả MIB (root)</strong> — không bị
+                chặn bởi cap/orphan check (chỉ áp dụng với MIB/IB tự áp cho con trực tiếp của họ). Dùng để
+                mồi config gốc cho MIB trước, để MIB sau đó tự áp Template được cho con của mình.
+              </p>
+              <div className="grid grid-cols-3 gap-4 items-end">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Template</label>
+                  <select
+                    value={applyTemplateForm.templateId}
+                    onChange={(e) => setApplyTemplateForm({ ...applyTemplateForm, templateId: e.target.value })}
+                    className="w-full px-3 py-2 border rounded"
+                  >
+                    <option value="">-- Select Template --</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.items?.length ?? 0} asset)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">User (bất kỳ cấp nào)</label>
+                  <select
+                    value={applyTemplateForm.userId}
+                    onChange={(e) => setApplyTemplateForm({ ...applyTemplateForm, userId: e.target.value })}
+                    className="w-full px-3 py-2 border rounded"
+                  >
+                    <option value="">-- Select User --</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.role} — {u.fullName ?? u.email} ({u.email})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  onClick={handleApplyTemplateAdmin}
+                  disabled={applyingTemplate}
+                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50"
+                >
+                  {applyingTemplate ? 'Đang áp dụng...' : 'Áp dụng Template'}
+                </button>
+              </div>
+              {templates.length === 0 && (
+                <p className="text-sm text-gray-400 mt-2">Chưa có template nào — tạo ở tab Templates trước.</p>
+              )}
+              {users.length === 0 && (
+                <p className="text-sm text-gray-400 mt-2">Chưa có user nào — tạo ở tab Users trước.</p>
+              )}
             </div>
           </div>
         )}
