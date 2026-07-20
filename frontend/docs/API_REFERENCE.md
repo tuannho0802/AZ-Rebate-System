@@ -53,8 +53,16 @@ bản tóm tắt tĩnh cho FE tra cứu nhanh, không thay thế Swagger.
 |---|---|---|---|
 | POST | `/commission-configs` | `{ userId, assetId, rebateUnit, markupPips }` | Xem đầy đủ rule ở `BUSINESS_RULES.md` |
 | PATCH | `/commission-configs/:userId/:assetId` | `{ rebateUnit?, markupPips?, version }` | `version` BẮT BUỘC — optimistic lock, sai → 409 |
-| GET | `/commission-configs/tree/:userId?assetId=` | — | **Admin-only**, trả cây lồng nhau đầy đủ |
-| GET | `/commission-configs/children/:userId?assetId=` | — | Chính mình hoặc Admin; trả `{ self, children: [] }` |
+| GET | `/commission-configs/tree/:userId?assetId=` | `assetId` **CHƯA xác nhận** bắt buộc hay optional | **Admin-only**, trả cây lồng nhau đầy đủ. Xem ghi chú ⚠️ ngay dưới bảng trước khi làm Flow 06 |
+| GET | `/commission-configs/children/:userId?assetId=` | `assetId` **BẮT BUỘC** | Chính mình hoặc Admin; trả `{ self, children: [] }`. Gọi thiếu `assetId` → 400 |
+
+> ⚠️ **Đã xác nhận qua log thật (Flow 04, `test-flow04-templates.js`, 20/7/2026)**:
+> `GET /commission-configs/children/:userId` yêu cầu `assetId` là query param **BẮT BUỘC**
+> — dấu `?assetId=` trong path dễ khiến hiểu nhầm là optional, nhưng thực tế gọi thiếu
+> sẽ bị `400`. Route `GET /commission-configs/tree/:userId` dùng cùng pattern query nên
+> **nhiều khả năng cũng bắt buộc tương tự**, nhưng CHƯA được test tay/script xác nhận —
+> khi làm Flow 06 (Commission Config: READ), verify lại bằng log thật trước khi coi
+> `assetId` là optional, đừng suy đoán theo mô tả cũ trong file này.
 
 Response `POST`/`PATCH` (1 record):
 ```json
