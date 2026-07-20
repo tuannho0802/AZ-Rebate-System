@@ -46,6 +46,9 @@ Tham chiếu chéo: [`API_REFERENCE.md`](./API_REFERENCE.md) cho path/body/respo
 - [x] Xoá asset → biến mất khỏi list
 - [x] Non-admin (MIB/IB) không thấy nút Create/Edit/Delete (chỉ xem list, vì `GET` mở công khai)
 
+### Bổ sung (sau khi hoàn thành)
+- [x] Asset List view-only được thêm vào `/mib` và `/ib` — dùng `AssetTable` với `isAdmin=false`
+
 ---
 
 ## Flow 03 — Admin: Users list + tạo User

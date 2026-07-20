@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
 import { api } from '../../lib/api-client';
 import CommissionManager from '../../components/commission-manager';
+import { Asset, listAssets } from '../../lib/api/admin';
+import AssetTable from '../../components/AssetTable';
 
 interface User {
   id: string;
@@ -27,6 +29,7 @@ export default function MibPage() {
 
   const [userList, setUserList] = useState<User[]>([]);
   const [subtree, setSubtree] = useState<SubtreeNode[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
 
   useEffect(() => {
     if (!user) {
@@ -44,6 +47,8 @@ export default function MibPage() {
     if (user?.sub) {
       api.get<User[]>('/users').then(setUserList).catch(console.error);
     }
+    // Load assets (GET /admin/assets is public for any logged-in actor)
+    listAssets().then(setAssets).catch(console.error);
   }, [user]);
 
   const loadSubtree = async (userId: string) => {
@@ -136,6 +141,15 @@ export default function MibPage() {
 
         {/* Commission Config + Account Management — chỉ CRUD được con trực tiếp (Lv1) */}
         <CommissionManager />
+
+        {/* Asset List Section — view-only cho MIB */}
+        <div className="bg-white rounded-lg shadow-md p-6 mt-8">
+          <h2 className="text-xl font-bold mb-4">Asset List</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            * Danh sách tài sản (view-only). Chọn Asset để cấu hình hoa hồng cho con trực tiếp.
+          </p>
+          <AssetTable assets={assets} />
+        </div>
       </div>
     </div>
   );

@@ -1,13 +1,17 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
+import { listAssets, Asset } from '../../lib/api/admin';
+import AssetTable from '../../components/AssetTable';
 import CommissionManager from '../../components/commission-manager';
 
 export default function IbPage() {
   const { user, logout } = useAuth();
   const router = useRouter();
+
+  const [assets, setAssets] = useState<Asset[]>([]);
 
   useEffect(() => {
     if (!user) {
@@ -18,7 +22,9 @@ export default function IbPage() {
       // Redirect admin to admin page
       router.push('/admin');
     }
-  }, [user, router]);
+    // Load assets (GET /admin/assets is public for any logged-in actor)
+    listAssets().then(setAssets).catch(console.error);
+  }, [user]);
 
   if (!user || user.type === 'admin') return null;
 
@@ -47,6 +53,15 @@ export default function IbPage() {
 
         {/* Account CRUD + Commission Config — chỉ áp dụng cho con trực tiếp */}
         <CommissionManager />
+
+        {/* Asset List Section — view-only cho IB */}
+        <div className="bg-white rounded-lg shadow-md p-6 mt-8">
+          <h2 className="text-xl font-bold mb-4">Asset List</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            * Danh sách tài sản (view-only). Chọn Asset để cấu hình hoa hồng cho con trực tiếp.
+          </p>
+          <AssetTable assets={assets} />
+        </div>
       </div>
     </div>
   );
