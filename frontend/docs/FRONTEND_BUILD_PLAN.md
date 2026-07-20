@@ -116,16 +116,22 @@ Trong lúc viết test Flow 04, phát hiện `GET /commission-configs/children/:
 
 ## Flow 06 — Commission Config: READ (tree + children)
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** ✅ Xong — UI đã làm + test API đã chạy thật, 29/29 PASS.
 **API dùng:** `GET /commission-configs/tree/:userId`, `GET /commission-configs/children/:userId`
-**Component đề xuất:** `CommissionTreeView` (Admin), `CommissionChildrenPanel` (MIB/IB)
+**Component:** `app/config/page.tsx` (Admin) + `CommissionManager.tsx` (MIB/IB).
+**Test:** `backend/test/test-flow06-config.js` — đã chạy thật trên môi trường dev, 29 PASS / 0 FAIL.
 
 ### Checklist test
-- [ ] Admin xem `tree/:userId` → render đúng cây lồng nhau nhiều tầng
-- [ ] Non-admin gọi `tree/:userId` → 403 (route Admin-only)
-- [ ] MIB xem `children/:mibId` → thấy đúng bản thân + con trực tiếp, KHÔNG thấy cháu
-- [ ] IB xem `children` của chính mình → OK; xem của người khác → 403
-- [ ] Node chưa có config hiện `null`/"chưa cấu hình" thay vì `0` (tránh hiểu nhầm đã set 0)
+- [x] Admin xem `tree/:userId` → render đúng cây lồng nhau nhiều tầng — confirm (MIB→IB1→IB2, 3 tầng)
+- [x] Non-admin gọi `tree/:userId` → 403 (route Admin-only) — confirm
+- [x] MIB xem `children/:mibId` → thấy đúng bản thân + con trực tiếp, KHÔNG thấy cháu — confirm
+- [x] IB xem `children` của chính mình → OK; xem của người khác → 403 — confirm
+- [x] Node chưa có config hiện `null` thay vì `0` — confirm (IB2 và assetB đều trả null đúng)
+
+### Ghi chú
+- Login non-admin (MIB/IB) đúng là `POST /auth/user/login` (không phải `/auth/login` như đoán ban đầu) — đã sửa và confirm.
+- `PARENT_FIELD = 'parentId'` khi tạo user qua `POST /admin/users` — confirm đúng.
+- Script giữ nguyên cơ chế tự thử nhiều path (`LOGIN_PATH_CANDIDATES`) làm fallback, phòng route đổi sau này.
 
 ---
 
