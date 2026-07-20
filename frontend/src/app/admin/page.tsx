@@ -22,7 +22,7 @@ interface Asset {
 export default function AdminPage() {
   const { user, logout, isLoading } = useAuth();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'users' | 'assets' | 'templates' | 'config' | 'sessions'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'assets' | 'templates' | 'integrity' | 'config' | 'sessions'>('users');
 
   const [assets, setAssets] = useState<Asset[]>([]);
 
@@ -136,6 +136,12 @@ export default function AdminPage() {
             Templates
           </button>
           <button
+            onClick={() => setActiveTab('integrity')}
+            className={`px-6 py-2 rounded-lg font-medium ${activeTab === 'integrity' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+          >
+            Integrity Check
+          </button>
+          <button
             onClick={() => setActiveTab('config')}
             className={`px-6 py-2 rounded-lg font-medium ${activeTab === 'config' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
           >
@@ -207,6 +213,26 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* Integrity Check Section — route riêng /admin/integrity-check ngay từ đầu,
+    theo đúng pattern Users/Assets/Templates, tránh lặp lại bug route-conflict
+    đã gặp ở Flow 03. */}
+        {activeTab === 'integrity' && (
+          <div className="space-y-8">
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Integrity Check</h2>
+              <p className="text-gray-600 mb-4">
+                Quét toàn bộ hệ thống để phát hiện vi phạm rule &quot;con ≤ cha&quot; giữa các cặp cha-con.
+              </p>
+              <a
+                href="/admin/integrity-check"
+                className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                Open Integrity Check
+              </a>
+            </div>
+          </div>
+        )}
+
         {/* Commission Configs Section — "Áp dụng Template" đã dời sang
             /admin/templates (gắn liền với Template hơn là Commission Config). */}
         {activeTab === 'config' && (
@@ -244,6 +270,6 @@ export default function AdminPage() {
           </div>
         )}
       </div>
-    </div>
+    </div >
   );
 }

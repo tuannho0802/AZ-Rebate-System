@@ -96,16 +96,21 @@ Trong lúc viết test Flow 04, phát hiện `GET /commission-configs/children/:
 
 ## Flow 05 — Integrity Check panel
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Đã test — PASS
 **API dùng:** `GET /admin/integrity-check`
 **Component đề xuất:** `IntegrityCheckPanel`
 
 ### Checklist test
-- [ ] Admin gọi → hiện đúng danh sách vi phạm (nếu có)
-- [ ] Non-admin gọi → 403, không thấy trang này (ẩn menu luôn, không chỉ chặn API)
-- [ ] Mỗi dòng vi phạm hiện đúng `childEmail`/`parentEmail`/`assetCode`
-- [ ] Dùng đúng cờ `violatesRebate`/`violatesMarkup` để highlight phần nào sai (không tự so sánh lại số)
-- [ ] Danh sách rỗng → hiện "Không có vi phạm" thay vì bảng trống khó hiểu
+- [x] Admin gọi → hiện đúng danh sách vi phạm (nếu có) — PASS qua script `test-flow05-integrity.js` (9/9, RUN_ID=1784538012083: 2 vi phạm CRYPTO + GAUCNH, shape FLAT đúng interface `ChainViolation`) + xác nhận tay trên UI (đúng 2 dòng render)
+- [x] Non-admin gọi → 403, không thấy trang này (ẩn menu luôn, không chỉ chặn API) — API 403 PASS qua script; ⚠️ CHƯA xác nhận tay phần ẩn menu tab trong `admin/page.tsx` và redirect khi non-admin gõ thẳng URL `/admin/integrity-check`
+- [x] Mỗi dòng vi phạm hiện đúng `childEmail`/`parentEmail`/`assetCode` — PASS tay trên UI (screenshot: CRYPTO/lv1-b@test.com/mib@test.com, GAUCNH/phela101990@gmail.com/mib2@test.com)
+- [x] Dùng đúng cờ `violatesRebate`/`violatesMarkup` để highlight phần nào sai (không tự so sánh lại số) — PASS tay trên UI (cả 2 dòng đều tô đỏ 2 cột kèm "⚠ lệch", khớp đúng cờ backend trả)
+- [ ] Danh sách rỗng → hiện "Không có vi phạm" thay vì bảng trống khó hiểu — CHƯA test được vì DB hiện có sẵn 2 vi phạm thật (CRYPTO, GAUCNH); code đã có nhánh xử lý (`violations.length === 0 → "✓ Không có vi phạm"` trong `IntegrityCheckPanel.tsx`), verify tay sau khi dọn 2 vi phạm này (theo DATABASE.md mục 5) hoặc test riêng trên môi trường DB sạch
+
+### Ghi chú
+- Test API 9/9 PASS qua script `test-flow05-integrity.js` (đã có sẵn trong `backend/test/`, chạy lại được để regression test — tự tạo User MIB test riêng theo `RUN_ID` để lấy token non-admin, không phụ thuộc credentials có sẵn ngoài Admin).
+- Verify thêm: gọi `/admin/integrity-check` không kèm token → `401` (chưa có trong bảng lỗi `API_REFERENCE.md`, nên bổ sung).
+- Endpoint hiện tại chỉ đọc (read-only check) — chưa có action dọn/sửa vi phạm trực tiếp từ panel, đúng quyết định ban đầu (không thêm link/action tới DATABASE.md mục 5, chỉ hiện danh sách).
 
 ---
 
