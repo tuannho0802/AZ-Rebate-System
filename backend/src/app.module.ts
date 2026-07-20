@@ -11,21 +11,24 @@ import { CommonModule } from './common/common.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { TemplateApplyModule } from './template-apply/template-apply.module';
+import { IntegrityModule } from './integrity/integrity.module';
+
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
-    AuthModule, 
-    AdminModule, 
-    UsersModule, 
-    CommissionConfigModule, 
-    PayoutSessionModule, 
-    LedgerModule, 
+    AuthModule,
+    AdminModule,
+    UsersModule,
+    CommissionConfigModule,
+    PayoutSessionModule,
+    LedgerModule,
     CommonModule,
-    TemplateApplyModule
+    TemplateApplyModule,
+    IntegrityModule
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
