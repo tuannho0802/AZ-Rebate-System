@@ -2,7 +2,14 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsString, MinLength, IsOptional, IsEnum, IsUUID } from 'class-validator';
 import { Role } from '@prisma/client';
 
-export class CreateUserDto {
+/**
+ * Dùng cho POST /users — IB tự tạo con TRỰC TIẾP cho chính mình (không phải
+ * Admin tạo tuỳ ý). Trước đây class này trùng tên "CreateUserDto" với DTO
+ * của POST /admin/users (khác thư mục, khác schema) khiến @nestjs/swagger
+ * warn "Duplicate DTO detected" — đổi tên thành CreateChildUserDto để tách
+ * rõ 2 schema trên OpenAPI doc, không đổi bất kỳ logic validate nào.
+ */
+export class CreateChildUserDto {
   @ApiProperty({ example: 'user@example.com', description: 'Email đăng nhập (unique)' })
   @IsEmail()
   email: string;

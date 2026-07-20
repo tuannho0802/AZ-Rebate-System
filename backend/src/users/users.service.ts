@@ -2,7 +2,7 @@ import { Injectable, ForbiddenException, NotFoundException, BadRequestException 
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { PaginationDto } from '../common/pagination/pagination.dto';
-import { CreateUserDto } from './dto/create-user.dto';
+import { CreateChildUserDto } from './dto/create-child-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Role, User, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
@@ -133,7 +133,7 @@ export class UsersService {
      * - dto.parentId có giá trị => tạo IB: actor phải CHÍNH LÀ parentId đó (chỉ
      *   cha trực tiếp mới tạo được con). Admin vẫn tạo được cho bất kỳ ai.
      */
-    async create(dto: CreateUserDto, actor: RequestActor): Promise<User> {
+    async create(dto: CreateChildUserDto, actor: RequestActor): Promise<User> {
         const isRoot = !dto.parentId;
 
         if (isRoot) {

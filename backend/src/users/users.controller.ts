@@ -1,19 +1,19 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Param,
-  Body,
-  Query,
-  UseGuards,
+    Controller,
+    Get,
+    Post,
+    Patch,
+    Param,
+    Body,
+    Query,
+    UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { UserViewGuard } from '../common/guards/user-view.guard';
 import { DirectParentGuard } from '../common/guards/direct-parent.guard';
 import { SubtreeViewGuard } from '../common/guards/subtree-view.guard';
 import { PaginationDto } from '../common/pagination/pagination.dto';
-import { CreateUserDto } from './dto/create-user.dto';
+import { CreateChildUserDto } from './dto/create-child-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
@@ -59,8 +59,8 @@ export class UsersController {
     @ApiCreatedResponse({ description: 'User được tạo thành công' })
     @ApiBadRequestResponse({ description: 'Email đã tồn tại, parentId không hợp lệ, role không đúng' })
     @ApiForbiddenResponse({ description: 'Không phải Admin nhưng cố tạo MIB hoặc tạo IB dưới cha không phải mình' })
-    @ApiBody({ type: CreateUserDto })
-    create(@Body() dto: CreateUserDto, @CurrentUser() user: any) {
+    @ApiBody({ type: CreateChildUserDto })
+    create(@Body() dto: CreateChildUserDto, @CurrentUser() user: any) {
         return this.usersService.create(dto, user);
     }
 
