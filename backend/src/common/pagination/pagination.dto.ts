@@ -1,23 +1,25 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsInt, IsOptional, IsString, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PaginationDto {
-    @IsOptional()
-    @Type(() => Number)
-    @IsInt()
-    @Min(1)
-    page: number = 1;
+  @ApiPropertyOptional({ example: 1, description: 'Trang (default: 1)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page: number = 1;
 
-    @IsOptional()
-    @Type(() => Number)
-    @IsInt()
-    @Min(1)
-    @Max(100)
-    limit: number = 20;
+  @ApiPropertyOptional({ example: 20, description: 'Số bản ghi mỗi trang (default: 20, max: 100)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit: number = 20;
 
-    // Kept as a plain string (not `keyof any`) — services must whitelist
-    // the actual allowed sort fields per-entity before passing to Prisma orderBy.
-    @IsOptional()
-    @IsString()
-    sort?: string = 'createdAt';
+  @ApiPropertyOptional({ example: 'createdAt', description: 'Trường sắp xếp (createdAt, updatedAt, email, fullName, role, isActive)' })
+  @IsOptional()
+  @IsString()
+  sort?: string = 'createdAt';
 }

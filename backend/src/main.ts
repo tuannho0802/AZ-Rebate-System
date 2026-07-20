@@ -3,9 +3,15 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { setupSwagger } from './swagger/swagger-config';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  
+  // Serve static files from 'public' directory
+  app.useStaticAssets('public');
+  
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   // PrismaExceptionFilter bắt riêng Prisma.PrismaClientKnownRequestError /
   // PrismaClientUnknownRequestError (lỗi CHECK/unique/FK constraint thô từ
@@ -20,6 +26,7 @@ async function bootstrap() {
     origin: ['http://localhost:3001'],
     credentials: true,
   });
+  setupSwagger(app);
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
