@@ -17,18 +17,18 @@ Tham chiếu chéo: [`API_REFERENCE.md`](./API_REFERENCE.md) cho path/body/respo
 
 ## Flow 01 — Login (Admin + User)
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Đã test — PASS
 **API dùng:** `POST /auth/admin/login`, `POST /auth/user/login`
 **Component:** `login/page.tsx`, `auth-context.tsx` (đã có, chỉ cần verify)
 
 ### Checklist test
-- [ ] Login đúng email/password Admin → vào được `/admin`
-- [ ] Login đúng email/password User (MIB) → vào được `/mib`
-- [ ] Login đúng email/password User (IB) → vào được `/ib`
-- [ ] Login sai password → hiện lỗi rõ ràng, không crash
-- [ ] Login email không tồn tại → hiện lỗi rõ ràng
-- [ ] Token lưu đúng cookie, refresh trang vẫn còn đăng nhập
-- [ ] Logout xoá đúng cookie, redirect về `/login`
+- [x] Login đúng email/password Admin → vào được `/admin`
+- [x] Login đúng email/password User (MIB) → vào được `/mib`
+- [x] Login đúng email/password User (IB) → vào được `/ib`
+- [x] Login sai password → hiện lỗi rõ ràng, không crash
+- [x] Login email không tồn tại → hiện lỗi rõ ràng
+- [x] Token lưu đúng cookie, refresh trang vẫn còn đăng nhập
+- [x] Logout xoá đúng cookie, redirect về `/login`
 
 ---
 
