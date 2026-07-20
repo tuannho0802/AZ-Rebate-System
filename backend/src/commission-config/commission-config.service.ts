@@ -71,6 +71,41 @@ export class CommissionConfigService {
     };
   }
 
+  /**
+   * [MOI] Dam bao bat bien "con <= cha" luon dung o MOI thoi diem, khong chi
+   * luc set con. Neu da co con truc tiep dang giu gia tri X cho asset nay,
+   * KHONG duoc ha gia tri cua chinh minh xuong duoi X — bat ke actor la
+   * Admin hay chinh cha do, va bat ke la root (MIB) hay khong. MIB khong co
+   * cha de gioi han tren, nhung van bi gioi han duoi boi chinh con cua no.
+   */
+  private async assertNoChildExceeds(
+    userId: string,
+    assetId: string,
+    rebateUnit: number,
+    markupPips: number,
+    client: DbClient,
+  ): Promise<void> {
+    const childConfigs = await client.userCommissionConfig.findMany({
+      where: { assetId, user: { parentId: userId } },
+    });
+
+    if (childConfigs.length === 0) return;
+
+    const maxChildRebate = Math.max(...childConfigs.map((c) => Number(c.rebateUnit)));
+    const maxChildMarkup = Math.max(...childConfigs.map((c) => Number(c.markupPips)));
+
+    if (rebateUnit < maxChildRebate) {
+      throw new BadRequestException(
+        `Không thể hạ rebateUnit xuống ${rebateUnit}: đã có con trực tiếp đang được cấp ${maxChildRebate} cho asset này. Hạ cấp con đó trước.`,
+      );
+    }
+    if (markupPips < maxChildMarkup) {
+      throw new BadRequestException(
+        `Không thể hạ markupPips xuống ${markupPips}: đã có con trực tiếp đang được cấp ${maxChildMarkup} cho asset này. Hạ cấp con đó trước.`,
+      );
+    }
+  }
+
   private async assertCanWrite(
     userId: string,
     assetId: string,
@@ -84,36 +119,36 @@ export class CommissionConfigService {
       if (actor.type !== 'ADMIN') {
         throw new ForbiddenException('Only Admin can update config for root MIB');
       }
-      return;
-    }
-
-    if (actor.type === 'ADMIN') {
-      return;
-    }
-
-    const { isDirectParent, parentConfig } = await this.resolveParentAccess(
-      userId,
-      actor.id,
-      assetId,
-      client,
-    );
-
-    if (!isDirectParent) {
-      throw new ForbiddenException('Only the direct parent can update this user\'s config');
-    }
-    if (!parentConfig) {
-      throw new BadRequestException('Orphan config: direct parent has no config for this asset');
-    }
-    if (rebateUnit > parentConfig.rebateUnit) {
-      throw new BadRequestException(
-        `rebateUnit ${rebateUnit} exceeds parent cap ${parentConfig.rebateUnit}`,
+    } else if (actor.type !== 'ADMIN') {
+      const { isDirectParent, parentConfig } = await this.resolveParentAccess(
+        userId,
+        actor.id,
+        assetId,
+        client,
       );
+
+      if (!isDirectParent) {
+        throw new ForbiddenException('Only the direct parent can update this user\'s config');
+      }
+      if (!parentConfig) {
+        throw new BadRequestException('Orphan config: direct parent has no config for this asset');
+      }
+      if (rebateUnit > parentConfig.rebateUnit) {
+        throw new BadRequestException(
+          `rebateUnit ${rebateUnit} exceeds parent cap ${parentConfig.rebateUnit}`,
+        );
+      }
+      if (markupPips > parentConfig.markupPips) {
+        throw new BadRequestException(
+          `markupPips ${markupPips} exceeds parent cap ${parentConfig.markupPips}`,
+        );
+      }
     }
-    if (markupPips > parentConfig.markupPips) {
-      throw new BadRequestException(
-        `markupPips ${markupPips} exceeds parent cap ${parentConfig.markupPips}`,
-      );
-    }
+    // Admin ghi cho non-root: bỏ qua check trần-trên (Admin bypass parent cap như cũ).
+    // MỌI trường hợp qua được tới đây (root hoặc không, Admin hoặc không) đều phải
+    // qua check trần-dưới sau đây — đây là phần MỚI, trước đây bị bỏ sót hoàn toàn,
+    // là nguyên nhân gây ra ledger âm khi cha tự hạ xuống dưới mức con.
+    await this.assertNoChildExceeds(userId, assetId, rebateUnit, markupPips, client);
   }
 
   /**
@@ -296,13 +331,6 @@ export class CommissionConfigService {
   /**
    * Xem 1 cap: chinh minh + cac con TRUC TIEP kem config. Actor phai la
    * chinh userId nay (tu xem cay cua minh) hoac Admin.
-   *
-   * [SUA — theo BACKEND_AUDIT.md GAP #2]: truoc day KHONG tra `version` cho
-   * ca `self` lan `children`, khien UI "Update Existing Config" (can version
-   * de optimistic lock) khong dung duoc tu MIB/IB — gui `parseInt(undefined)`
-   * = NaN, backend tu choi 400. Gio tra dung version tu DB (null neu user do
-   * chua co config nao cho asset nay — nghia la phai dung form "Create/Set
-   * Config" (POST, khong can version) truoc, chua the "Update").
    */
   async getDirectChildren(userId: string, assetId: string, actor: RequestActor) {
     if (actor.type !== 'ADMIN' && actor.id !== userId) {
