@@ -378,104 +378,20 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Assets Section — API thật, không còn mock */}
+        {/* Assets Section */}
         {activeTab === 'assets' && (
           <div className="space-y-8">
-            {/* Create Asset Form */}
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Create New Asset</h2>
-              <form onSubmit={handleCreateAsset} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    placeholder="Code"
-                    value={newAsset.code}
-                    onChange={(e) => setNewAsset({ ...newAsset, code: e.target.value })}
-                    required
-                    className="px-3 py-2 border rounded"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Name"
-                    value={newAsset.name}
-                    onChange={(e) => setNewAsset({ ...newAsset, name: e.target.value })}
-                    required
-                    className="px-3 py-2 border rounded"
-                  />
-                </div>
-                <select
-                  value={newAsset.category}
-                  onChange={(e) => setNewAsset({ ...newAsset, category: e.target.value as AssetCategory })}
-                  className="px-3 py-2 border rounded"
-                >
-                  <option value="FOREX">FOREX</option>
-                  <option value="METAL">METAL</option>
-                  <option value="ENERGY">ENERGY</option>
-                  <option value="COMMODITY">COMMODITY</option>
-                  <option value="INDEX">INDEX</option>
-                  <option value="SHARES">SHARES</option>
-                  <option value="CRYPTO">CRYPTO</option>
-                  <option value="OTHER">OTHER</option>
-                </select>
-                <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                  Create Asset
-                </button>
-              </form>
-            </div>
-
-            {/* Assets List */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold">Asset List</h2>
-                <button onClick={() => fetchAssets()} className="text-sm text-blue-600 hover:underline">
-                  Refresh
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="px-4 py-2 text-left">Code</th>
-                      <th className="px-4 py-2 text-left">Name</th>
-                      <th className="px-4 py-2 text-left">Category</th>
-                      <th className="px-4 py-2 text-left">Active</th>
-                      <th className="px-4 py-2 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {assets.map((a) => (
-                      <tr key={a.id} className="border-t">
-                        <td className="px-4 py-2">{a.code}</td>
-                        <td className="px-4 py-2">{a.name}</td>
-                        <td className="px-4 py-2">{a.category}</td>
-                        <td className="px-4 py-2">{a.isActive ? 'Yes' : 'No'}</td>
-                        <td className="px-4 py-2 space-x-2">
-                          <button onClick={() => handleUpdateAsset(a)} className="text-blue-600 hover:underline text-sm">
-                            Sửa tên
-                          </button>
-                          <button onClick={() => handleToggleAssetActive(a)} className="text-yellow-600 hover:underline text-sm">
-                            {a.isActive ? 'Vô hiệu hoá' : 'Kích hoạt'}
-                          </button>
-                          <button onClick={() => handleDeleteAsset(a)} className="text-red-600 hover:underline text-sm">
-                            Xoá
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {assets.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
-                          Chưa có asset nào
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-gray-500 text-sm mt-4">
-                * Xoá sẽ bị chặn nếu asset đang được dùng thật trong commission configs, payout
-                sessions, hoặc có template item khác 0.
+              <h2 className="text-xl font-bold mb-4">Asset Management</h2>
+              <p className="text-gray-600 mb-4">
+                Asset Management đã được tách ra thành route riêng để sử dụng components tái dụng.
               </p>
+              <a
+                href="/admin/assets"
+                className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                Open Asset Management
+              </a>
             </div>
           </div>
         )}

@@ -34,17 +34,17 @@ Tham chiếu chéo: [`API_REFERENCE.md`](./API_REFERENCE.md) cho path/body/respo
 
 ## Flow 02 — Admin: Asset CRUD
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Đã test — PASS
 **API dùng:** `POST/GET/PATCH/DELETE /admin/assets`
 **Component đề xuất:** `AssetTable`, `AssetFormDialog`
 
 ### Checklist test
-- [ ] List asset hiện đúng, kể cả `isActive=false` (có đánh dấu rõ)
-- [ ] Tạo asset mới → xuất hiện ngay trong list
-- [ ] Tạo asset trùng `code` → hiện lỗi rõ ràng
-- [ ] Sửa asset (đổi `name`/`category`/`isActive`) → cập nhật đúng
-- [ ] Xoá asset → biến mất khỏi list
-- [ ] Non-admin (MIB/IB) không thấy nút Create/Edit/Delete (chỉ xem list, vì `GET` mở công khai)
+- [x] List asset hiện đúng, kể cả `isActive=false` (có đánh dấu rõ — badge "Ngừng hoạt động")
+- [x] Tạo asset mới → xuất hiện ngay trong list
+- [x] Tạo asset trùng `code` → hiện lỗi rõ ràng
+- [x] Sửa asset (đổi `name`/`category`/`isActive`) → cập nhật đúng
+- [x] Xoá asset → biến mất khỏi list
+- [x] Non-admin (MIB/IB) không thấy nút Create/Edit/Delete (chỉ xem list, vì `GET` mở công khai)
 
 ---
 
