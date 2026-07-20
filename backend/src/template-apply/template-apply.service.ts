@@ -51,6 +51,26 @@ export class TemplateApplyService {
       throw new BadRequestException('Template has no items to apply');
     }
 
+    // [MOI] Loc bo item PLACEHOLDER (rebateUnit=0 VA markupPips=0). admin.service.ts
+    // tu dong dem item (0,0) cho MOI asset ma Admin khong liet ke khi tao/update
+    // Template (xem createTemplate/updateTemplate), va coi day la "chua cau hinh"
+    // chu khong phai gia tri that — bang chung ro nhat la deleteAsset() CHU Y bo qua
+    // item (0,0) khi dem ref-count. Truoc day vong lap nay ap CA nhung placeholder
+    // do len UserCommissionConfig cua target, khien 1 template "1 asset" thuc te ghi
+    // de len HANG CHUC asset khac (vi du GOLD) ve 0 — dung nguyen nhan gay ledger am
+    // khi target la cha dang co con giu gia tri > 0 o nhung asset do (bi
+    // assertNoChildExceeds chan lai, lo ra bug nay). Chi ap dung item Admin THAT SU
+    // chu dong set (khac 0/0), nhat quan voi quy uoc da co san trong admin.service.ts.
+    const meaningfulItems = template.items.filter(
+      (item) => Number(item.rebateUnit) !== 0 || Number(item.markupPips) !== 0,
+    );
+
+    if (meaningfulItems.length === 0) {
+      throw new BadRequestException(
+        'Template has no meaningful (non-zero) items to apply — all items are unset placeholders',
+      );
+    }
+
     // TÁI SỬ DỤNG commissionConfigService.upsert() cho từng item, truyền `tx`
     // để mọi write (kể cả AuditLog con mà upsert() tự ghi) nằm trong CÙNG 1
     // transaction — 1 item fail thì Prisma tự rollback toàn bộ. Với permission
@@ -58,7 +78,7 @@ export class TemplateApplyService {
     // là lớp phòng thủ thứ 2 (defense in depth), không phải lớp chặn chính.
     const appliedConfigs = await this.prisma.$transaction(async (tx) => {
       const results: Awaited<ReturnType<typeof this.commissionConfigService.upsert>>[] = [];
-      for (const item of template.items) {
+      for (const item of meaningfulItems) {
         try {
           const applied = await this.commissionConfigService.upsert(
             {
