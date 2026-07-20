@@ -4,30 +4,15 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
 import { api } from '../../lib/api-client';
-
-export interface ConfigNode {
-  userId: string;
-  email: string;
-  fullName: string | null;
-  role: string;
-  isActive: boolean;
-  rebateUnit: number | null;
-  markupPips: number | null;
-  transferUnit: number | null;
-  version: number | null;
-  children: ConfigNode[];
-}
-
-interface CommissionConfig {
-  id: string;
-  userId: string;
-  assetId: string;
-  rebateUnit: number;
-  markupPips: number;
-  transferUnit: number;
-  version: number;
-  createdAt: string;
-}
+import {
+  getConfigTree,
+  getConfigChildren,
+  upsertConfig,
+  updateConfig,
+  CommissionConfigTreeNode,
+  CommissionConfigChildrenResponse,
+  CommissionConfigChild,
+} from '../../lib/api/commission-config';
 
 interface Asset {
   id: string;
@@ -68,8 +53,8 @@ export default function ConfigPage() {
   const [activeTab, setActiveTab] = useState<'tree' | 'children'>('tree');
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [selectedAssetId, setSelectedAssetId] = useState<string>('');
-  const [treeData, setTreeData] = useState<ConfigNode | null>(null);
-  const [childrenData, setChildrenData] = useState<any | null>(null);
+  const [treeData, setTreeData] = useState<CommissionConfigTreeNode | null>(null);
+  const [childrenData, setChildrenData] = useState<CommissionConfigChildrenResponse | null>(null);
   const [viewLoading, setViewLoading] = useState(false);
 
   // Assets & Users from real backend API (mock-store removed — backend has real GET/PATCH/DELETE now)
@@ -129,8 +114,8 @@ export default function ConfigPage() {
   const loadTree = async (userId: string, assetId: string) => {
     setViewLoading(true);
     try {
-      const data = await api.get<ConfigNode>(`/commission-configs/tree/${userId}?assetId=${assetId}`);
-      setTreeData({ ...data, children: data.children ?? [] });
+      const data = await getConfigTree(userId, assetId);
+      setTreeData(data);
     } catch (error: any) {
       alert(`Failed to load tree: ${error.message}`);
       setTreeData(null);
@@ -142,7 +127,7 @@ export default function ConfigPage() {
   const loadChildren = async (userId: string, assetId: string) => {
     setViewLoading(true);
     try {
-      const data = await api.get<any>(`/commission-configs/children/${userId}?assetId=${assetId}`);
+      const data = await getConfigChildren(userId, assetId);
       setChildrenData(data);
     } catch (error: any) {
       alert(`Failed to load children: ${error.message}`);
@@ -171,7 +156,7 @@ export default function ConfigPage() {
       return;
     }
     try {
-      const created = await api.post<CommissionConfig>('/commission-configs', {
+      const created = await upsertConfig({
         userId: upsertForm.userId,
         assetId: upsertForm.assetId,
         rebateUnit: parseFloat(upsertForm.rebateUnit) || 0,
@@ -195,14 +180,11 @@ export default function ConfigPage() {
       return;
     }
     try {
-      const updated = await api.patch<CommissionConfig>(
-        `/commission-configs/${updateForm.userId}/${updateForm.assetId}`,
-        {
-          rebateUnit: updateForm.rebateUnit ? parseFloat(updateForm.rebateUnit) : undefined,
-          markupPips: updateForm.markupPips ? parseFloat(updateForm.markupPips) : undefined,
-          version: parseInt(updateForm.version, 10),
-        }
-      );
+      const updated = await updateConfig(updateForm.userId, updateForm.assetId, {
+        rebateUnit: updateForm.rebateUnit ? parseFloat(updateForm.rebateUnit) : undefined,
+        markupPips: updateForm.markupPips ? parseFloat(updateForm.markupPips) : undefined,
+        version: parseInt(updateForm.version, 10),
+      });
       alert(`Config updated successfully! (version mới: ${updated.version})`);
       setUpdateForm(emptyUpdateForm);
       if (selectedUserId === updateForm.userId && selectedAssetId === updateForm.assetId) {
@@ -348,7 +330,7 @@ export default function ConfigPage() {
                 </tr>
               </thead>
               <tbody>
-                {childrenData.children.map((c: any) => (
+                {childrenData.children.map((c: CommissionConfigChild) => (
                   <tr key={c.userId} className="border-t">
                     <td className="px-4 py-2">{c.email}</td>
                     <td className="px-4 py-2">{c.role}</td>
@@ -535,7 +517,7 @@ function TreeDisplay({
   node,
   onEdit,
 }: {
-  node: ConfigNode;
+  node: CommissionConfigTreeNode;
   onEdit: (node: { userId: string; version: number | null; rebateUnit: number | null; markupPips: number | null }) => void;
 }) {
   return (

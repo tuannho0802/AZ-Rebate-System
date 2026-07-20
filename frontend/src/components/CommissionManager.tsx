@@ -3,6 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/auth-context';
 import { api } from '../lib/api-client';
+import {
+  getConfigChildren,
+  upsertConfig,
+  updateConfig,
+  CommissionConfigSelf,
+  CommissionConfigChild,
+} from '../lib/api/commission-config';
 
 interface UserRecord {
   id: string;
@@ -79,8 +86,9 @@ export default function CommissionManager() {
 
   const [selectedAssetId, setSelectedAssetId] = useState('');
   const [directChildren, setDirectChildren] = useState<UserRecord[]>([]);
-  const [selfInfo, setSelfInfo] = useState<{ email: string; rebateUnit: number | null; markupPips: number | null } | null>(null);
-  const [childrenConfig, setChildrenConfig] = useState<Map<string, ChildConfigInfo>>(new Map());
+  const [selfInfo, setSelfInfo] = useState<CommissionConfigSelf | null>(null);
+  const [childrenConfig, setChildrenConfig] = useState<Map<string, CommissionConfigChild>>(new Map());
+
   const [loadingChildren, setLoadingChildren] = useState(false);
 
   const [createChildForm, setCreateChildForm] = useState({ email: '', password: '', fullName: '' });
@@ -161,12 +169,9 @@ export default function CommissionManager() {
     if (!ownId || !assetId) return;
     setLoadingChildren(true);
     try {
-      const data = await api.get<{
-        self: { userId: string; email: string; rebateUnit: number | null; markupPips: number | null };
-        children: ChildConfigInfo[];
-      }>(`/commission-configs/children/${ownId}?assetId=${assetId}`);
-      setSelfInfo({ email: data.self.email, rebateUnit: data.self.rebateUnit, markupPips: data.self.markupPips });
-      const map = new Map<string, ChildConfigInfo>();
+      const data = await getConfigChildren(ownId, assetId);
+      setSelfInfo(data.self);
+      const map = new Map<string, CommissionConfigChild>();
       for (const c of data.children) map.set(c.userId, c);
       setChildrenConfig(map);
     } catch (error: any) {
@@ -227,7 +232,7 @@ export default function CommissionManager() {
       return;
     }
     try {
-      await api.post('/commission-configs', {
+      await upsertConfig({
         userId: upsertForm.userId,
         assetId: selectedAssetId,
         rebateUnit: parseFloat(upsertForm.rebateUnit) || 0,
@@ -248,7 +253,7 @@ export default function CommissionManager() {
       return;
     }
     try {
-      await api.patch(`/commission-configs/${updateForm.userId}/${selectedAssetId}`, {
+      await updateConfig(updateForm.userId, selectedAssetId, {
         rebateUnit: updateForm.rebateUnit ? parseFloat(updateForm.rebateUnit) : undefined,
         markupPips: updateForm.markupPips ? parseFloat(updateForm.markupPips) : undefined,
         version: parseInt(updateForm.version, 10),

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
 import { listAssets, Asset } from '../../lib/api/admin';
 import AssetTable from '../../components/AssetTable';
-import CommissionManager from '../../components/commission-manager';
+import CommissionManager from '../../components/CommissionManager';
 
 export default function IbPage() {
   const { user, logout } = useAuth();

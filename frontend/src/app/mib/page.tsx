@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
 import { api } from '../../lib/api-client';
-import CommissionManager from '../../components/commission-manager';
+import CommissionManager from '../../components/CommissionManager';
 import { Asset, listAssets } from '../../lib/api/admin';
 import AssetTable from '../../components/AssetTable';
 
