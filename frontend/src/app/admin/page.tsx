@@ -56,7 +56,6 @@ export default function AdminPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
 
-  const [newUser, setNewUser] = useState({ email: '', password: '', fullName: '', role: 'MIB' as 'MIB' | 'IB', parentId: '' });
   const [newAsset, setNewAsset] = useState({ code: '', name: '', category: 'OTHER' as AssetCategory });
   const [newTemplate, setNewTemplate] = useState({ name: '', description: '', items: [{ assetId: '', rebateUnit: 0, markupPips: 0 }] });
   const [applyTemplateForm, setApplyTemplateForm] = useState({ templateId: '', userId: '' });
@@ -84,9 +83,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (isLoading || !user || user.type !== 'admin') return;
-    if (activeTab === 'users') {
-      api.get<User[]>('/users').then(setUsers).catch(console.error);
-    } else if (activeTab === 'assets') {
+    if (activeTab === 'assets') {
       fetchAssets();
     } else if (activeTab === 'templates') {
       // Template item picker cần danh sách asset thật, nên load kèm nếu chưa có
@@ -98,20 +95,10 @@ export default function AdminPage() {
       if (users.length === 0) api.get<User[]>('/users').then(setUsers).catch(console.error);
       if (templates.length === 0) fetchTemplates();
     }
+    // Tab 'users' không còn tự fetch/render list ở đây — đã tách hẳn sang
+    // route /admin/users (Flow 03), tránh trùng lặp dữ liệu + logic.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, isLoading, user]);
-
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const created = await api.post<User>('/admin/users', newUser);
-      setUsers([...users, created]);
-      setNewUser({ email: '', password: '', fullName: '', role: 'MIB', parentId: '' });
-      alert('User created successfully!');
-    } catch (error: any) {
-      alert(`Failed to create user: ${error.message}`);
-    }
-  };
 
   const handleCreateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -294,86 +281,22 @@ export default function AdminPage() {
           </button>
         </div>
 
-        {/* Users Section */}
+        {/* Users Section — đã tách hẳn sang route /admin/users (Flow 03),
+            chỉ còn card dẫn hướng, KHÔNG tự render form/list ở đây nữa
+            (tránh trùng lặp đã gây lỗi route conflict). */}
         {activeTab === 'users' && (
           <div className="space-y-8">
-            {/* Create User Form */}
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Create New User</h2>
-              <form onSubmit={handleCreateUser} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <input
-                    type="email"
-                    placeholder="Email"
-                    value={newUser.email}
-                    onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                    required
-                    className="px-3 py-2 border rounded"
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    value={newUser.password}
-                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                    required
-                    className="px-3 py-2 border rounded"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    placeholder="Full Name (optional)"
-                    value={newUser.fullName}
-                    onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })}
-                    className="px-3 py-2 border rounded"
-                  />
-                  <select
-                    value={newUser.role}
-                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value as 'MIB' | 'IB' })}
-                    className="px-3 py-2 border rounded"
-                  >
-                    <option value="MIB">MIB</option>
-                    <option value="IB">IB</option>
-                  </select>
-                </div>
-                <input
-                  type="text"
-                  placeholder="Parent ID (optional, for IB)"
-                  value={newUser.parentId}
-                  onChange={(e) => setNewUser({ ...newUser, parentId: e.target.value })}
-                  className="px-3 py-2 border rounded"
-                />
-                <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                  Create User
-                </button>
-              </form>
-            </div>
-
-            {/* Users List */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">User List</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="px-4 py-2 text-left">Email</th>
-                      <th className="px-4 py-2 text-left">Full Name</th>
-                      <th className="px-4 py-2 text-left">Role</th>
-                      <th className="px-4 py-2 text-left">Active</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((u) => (
-                      <tr key={u.id} className="border-t">
-                        <td className="px-4 py-2">{u.email}</td>
-                        <td className="px-4 py-2">{u.fullName}</td>
-                        <td className="px-4 py-2">{u.role}</td>
-                        <td className="px-4 py-2">{u.isActive ? 'Yes' : 'No'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <h2 className="text-xl font-bold mb-4">User Management</h2>
+              <p className="text-gray-600 mb-4">
+                User Management đã được tách ra thành route riêng để sử dụng components tái dụng.
+              </p>
+              <a
+                href="/admin/users"
+                className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                Open User Management
+              </a>
             </div>
           </div>
         )}
