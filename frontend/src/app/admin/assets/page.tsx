@@ -6,6 +6,7 @@ import { useAuth } from '../../../context/auth-context';
 import { Asset, listAssets, createAsset, updateAsset, deleteAsset } from '../../../lib/api/admin';
 import AssetTable from '../../../components/AssetTable';
 import AssetFormDialog from '../../../components/AssetFormDialog';
+import { PageShell, TopNav, PageBody, Card, Button } from '../../../components/ui/primitives';
 
 export default function AdminAssetsPage() {
   const { user, logout, isLoading } = useAuth();
@@ -30,6 +31,7 @@ export default function AdminAssetsPage() {
   useEffect(() => {
     if (isLoading || !user || user.type !== 'admin') return;
     loadAssets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, user]);
 
   const loadAssets = async () => {
@@ -79,13 +81,7 @@ export default function AdminAssetsPage() {
     setIsDialogOpen(true);
   };
 
-  const openEditNameDialog = (asset: Asset) => {
-    setDialogMode('edit');
-    setEditingAsset(asset);
-    setIsDialogOpen(true);
-  };
-
-  const openEditActiveDialog = (asset: Asset) => {
+  const openEditDialog = (asset: Asset) => {
     setDialogMode('edit');
     setEditingAsset(asset);
     setIsDialogOpen(true);
@@ -104,38 +100,24 @@ export default function AdminAssetsPage() {
   if (!user || user.type !== 'admin') return null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-blue-600 text-white px-6 py-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Asset Management</h1>
-          <button onClick={logout} className="bg-blue-700 hover:bg-blue-800 px-4 py-2 rounded">
-            Logout
-          </button>
-        </div>
-      </nav>
+    <PageShell>
+      <TopNav roleKind="admin" title="Asset Management" subtitle="Admin Console" userEmail={user.email} onLogout={logout} />
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-6">
-          <button
-            onClick={openCreateDialog}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-          >
-            + Tạo Asset mới
-          </button>
-          <button
-            onClick={loadAssets}
-            className="ml-2 text-blue-600 hover:underline"
-          >
-            Refresh danh sách
-          </button>
-        </div>
-
-        <AssetTable
-          assets={assets}
-          onEditName={openEditNameDialog}
-          onToggleActive={openEditActiveDialog}
-          onDelete={handleDelete}
-        />
+      <PageBody>
+        <Card
+          title="Danh sách Asset"
+          description={`${assets.length} asset trong hệ thống`}
+          actions={
+            <>
+              <Button variant="secondary" onClick={loadAssets}>
+                ↻ Refresh
+              </Button>
+              <Button onClick={openCreateDialog}>+ Tạo Asset mới</Button>
+            </>
+          }
+        >
+          <AssetTable assets={assets} onEditName={openEditDialog} onToggleActive={openEditDialog} onDelete={handleDelete} />
+        </Card>
 
         <AssetFormDialog
           open={isDialogOpen}
@@ -145,7 +127,7 @@ export default function AdminAssetsPage() {
           onSave={handleSave}
           isLoading={isLoadingSave}
         />
-      </div>
-    </div>
+      </PageBody>
+    </PageShell>
   );
 }

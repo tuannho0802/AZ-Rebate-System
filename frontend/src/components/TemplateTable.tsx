@@ -1,6 +1,7 @@
 'use client';
 
 import { Template, TemplateItem } from '../lib/api/template';
+import { Badge, Button, EmptyState, Table, Th, Td } from './ui/primitives';
 
 interface TemplateTableProps {
     templates: Template[];
@@ -19,48 +20,50 @@ function isPlaceholder(item: TemplateItem): boolean {
 
 export default function TemplateTable({ templates, onEditDescription, onDeleteTemplate, onUpdateItem }: TemplateTableProps) {
     if (templates.length === 0) {
-        return (
-            <div className="bg-white rounded-lg shadow-md p-6 text-center">
-                <p className="text-gray-400">Chưa có template nào</p>
-            </div>
-        );
+        return <EmptyState icon="🗂️" title="Chưa có template nào" description="Tạo template để đóng gói sẵn 1 bộ rebate/markup, áp dụng nhanh cho nhiều IB." />;
     }
 
     return (
-        <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="space-y-6">
-                {templates.map((t) => (
-                    <div key={t.id} className="border border-gray-200 rounded p-4">
-                        <div className="flex items-center justify-between mb-2">
-                            <div>
-                                <span className="font-bold">{t.name}</span>
-                                {t.description && <span className="text-gray-500 ml-2">— {t.description}</span>}
+        <div className="space-y-4">
+            {templates.map((t) => {
+                const setCount = t.items.filter((it) => !isPlaceholder(it)).length;
+                return (
+                    <div key={t.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="flex items-center justify-between px-5 py-3.5 bg-slate-50/70 border-b border-slate-200">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-semibold text-slate-900">{t.name}</span>
+                                    <Badge tone="indigo">{setCount} asset đã set</Badge>
+                                </div>
+                                {t.description && <p className="text-sm text-slate-500 mt-0.5">{t.description}</p>}
                             </div>
-                            <div className="space-x-2">
-                                <button onClick={() => onEditDescription(t)} className="text-blue-600 hover:underline text-sm">
+                            <div className="flex gap-1.5 shrink-0">
+                                <Button size="sm" variant="ghost" onClick={() => onEditDescription(t)}>
                                     Sửa mô tả
-                                </button>
-                                <button onClick={() => onDeleteTemplate(t)} className="text-red-600 hover:underline text-sm">
+                                </Button>
+                                <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50" onClick={() => onDeleteTemplate(t)}>
                                     Xoá
-                                </button>
+                                </Button>
                             </div>
                         </div>
-                        <table className="w-full text-sm">
+                        <Table>
                             <thead>
-                                <tr className="bg-gray-100">
-                                    <th className="px-2 py-1 text-left">Asset</th>
-                                    <th className="px-2 py-1 text-left">Rebate Unit</th>
-                                    <th className="px-2 py-1 text-left">Markup Pips</th>
-                                    <th className="px-2 py-1 text-left">Trạng thái</th>
+                                <tr>
+                                    <Th>Asset</Th>
+                                    <Th>Rebate Unit</Th>
+                                    <Th>Markup Pips</Th>
+                                    <Th>Trạng thái</Th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {t.items.map((item) => {
                                     const placeholder = isPlaceholder(item);
                                     return (
-                                        <tr key={item.assetId} className={`border-t ${placeholder ? 'bg-gray-50 text-gray-400' : ''}`}>
-                                            <td className="px-2 py-1">{item.asset ? `${item.asset.code} — ${item.asset.name}` : item.assetId}</td>
-                                            <td className="px-2 py-1">
+                                        <tr key={item.assetId} className={placeholder ? 'text-slate-400' : 'hover:bg-slate-50/70'}>
+                                            <Td className={placeholder ? '' : 'font-medium text-slate-900'}>
+                                                {item.asset ? `${item.asset.code} — ${item.asset.name}` : item.assetId}
+                                            </Td>
+                                            <Td>
                                                 <input
                                                     type="number"
                                                     defaultValue={item.rebateUnit}
@@ -68,10 +71,10 @@ export default function TemplateTable({ templates, onEditDescription, onDeleteTe
                                                         const val = parseFloat(e.target.value) || 0;
                                                         if (val !== Number(item.rebateUnit)) onUpdateItem(t, item, 'rebateUnit', val);
                                                     }}
-                                                    className="w-24 px-2 py-1 border border-gray-300 rounded"
+                                                    className="w-24 px-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                                 />
-                                            </td>
-                                            <td className="px-2 py-1">
+                                            </Td>
+                                            <Td>
                                                 <input
                                                     type="number"
                                                     defaultValue={item.markupPips}
@@ -79,28 +82,24 @@ export default function TemplateTable({ templates, onEditDescription, onDeleteTe
                                                         const val = parseFloat(e.target.value) || 0;
                                                         if (val !== Number(item.markupPips)) onUpdateItem(t, item, 'markupPips', val);
                                                     }}
-                                                    className="w-24 px-2 py-1 border border-gray-300 rounded"
+                                                    className="w-24 px-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                                 />
-                                            </td>
-                                            <td className="px-2 py-1">
+                                            </Td>
+                                            <Td>
                                                 {placeholder ? (
-                                                    <span className="px-2 py-0.5 bg-gray-200 text-gray-500 text-xs rounded whitespace-nowrap">
-                                                        Placeholder — không áp dụng khi Apply
-                                                    </span>
+                                                    <Badge tone="slate">Placeholder — không áp dụng</Badge>
                                                 ) : (
-                                                    <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded whitespace-nowrap">
-                                                        Admin đã set
-                                                    </span>
+                                                    <Badge tone="emerald">Admin đã set</Badge>
                                                 )}
-                                            </td>
+                                            </Td>
                                         </tr>
                                     );
                                 })}
                             </tbody>
-                        </table>
+                        </Table>
                     </div>
-                ))}
-            </div>
+                );
+            })}
         </div>
     );
 }

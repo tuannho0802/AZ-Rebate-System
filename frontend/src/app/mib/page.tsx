@@ -7,6 +7,7 @@ import { api } from '../../lib/api-client';
 import CommissionManager from '../../components/CommissionManager';
 import { Asset, listAssets } from '../../lib/api/admin';
 import AssetTable from '../../components/AssetTable';
+import { PageShell, TopNav, PageBody, Card, ActiveBadge, RoleBadge, EmptyState, Loading } from '../../components/ui/primitives';
 
 interface User {
   id: string;
@@ -29,7 +30,9 @@ export default function MibPage() {
 
   const [userList, setUserList] = useState<User[]>([]);
   const [subtree, setSubtree] = useState<SubtreeNode[]>([]);
+  const [subtreeRoot, setSubtreeRoot] = useState<string | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [loadingSubtree, setLoadingSubtree] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -37,120 +40,102 @@ export default function MibPage() {
       return;
     }
     if (user.type !== 'user') {
-      // Redirect admin to admin page
       router.push('/admin');
     }
   }, [user, router]);
 
   useEffect(() => {
-    // MIB sees all users in their subtree (recursive)
     if (user?.sub) {
       api.get<User[]>('/users').then(setUserList).catch(console.error);
     }
-    // Load assets (GET /admin/assets is public for any logged-in actor)
     listAssets().then(setAssets).catch(console.error);
   }, [user]);
 
   const loadSubtree = async (userId: string) => {
+    setLoadingSubtree(true);
+    setSubtreeRoot(userId);
     try {
       const nodes = await api.get<SubtreeNode[]>(`/users/${userId}/subtree`);
       setSubtree(nodes);
     } catch (error: any) {
       alert(`Failed to load subtree: ${error.message}`);
+    } finally {
+      setLoadingSubtree(false);
     }
   };
+
+  const userById = new Map(userList.map((u) => [u.id, u]));
 
   if (!user || user.type === 'admin') return null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-blue-600 text-white px-6 py-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Rebate System — MIB Dashboard</h1>
-          <button onClick={logout} className="bg-blue-700 hover:bg-blue-800 px-4 py-2 rounded">
-            Logout
-          </button>
-        </div>
-      </nav>
+    <PageShell>
+      <TopNav roleKind="MIB" title="MIB Dashboard" subtitle="Rebate System" userEmail={user.email} onLogout={logout} />
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-6">
-          <p className="text-gray-700">
-            <strong>Welcome, {user.email}</strong> — MIB Dashboard
-          </p>
-          <p className="text-sm text-gray-500">
-            * Xem toàn bộ cây con cháu của chính mình qua subtree (view-only, mọi cấp). Phần quản lý/CRUD
-            bên dưới chỉ áp dụng cho <strong>con trực tiếp (Lv1)</strong> — đúng quy tắc "LvN CRUD cho
-            LvN+1".
-          </p>
-        </div>
+      <PageBody>
+        <p className="text-sm text-slate-500">
+          Xin chào <strong className="text-slate-800">{user.email}</strong>. Xem toàn bộ cây con cháu của bạn bên dưới
+          (view-only). Phần quản lý/cấu hình chỉ áp dụng cho <strong>con trực tiếp (Lv1)</strong>.
+        </p>
 
-        {/* Subtree Section — KHÔNG THAY ĐỔI, giữ nguyên view-only cho toàn bộ cây */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold mb-4">Your Subtree (Recursive)</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Click vào một user để xem toàn bộ cây con của họ:
-          </p>
-
+        <Card title="Cây con cháu (Subtree)" description="Bấm vào một user để xem toàn bộ cây con của họ.">
           {userList.length === 0 ? (
-            <p className="text-gray-500">Loading users...</p>
+            <Loading label="Đang tải danh sách user..." />
           ) : (
-            <div className="space-y-4">
-              <h3 className="font-medium text-gray-700">Users in your subtree:</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                {userList.map((u) => (
-                  <button
-                    key={u.id}
-                    onClick={() => loadSubtree(u.id)}
-                    className="text-left px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded border border-gray-200"
-                  >
-                    <div className="font-medium">{u.email}</div>
-                    <div className="text-sm text-gray-600">
-                      {u.fullName || 'No name'} — {u.role} — {u.isActive ? 'Active' : 'Inactive'}
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">ID: {u.id.slice(0, 8)}...</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {subtree.length > 0 && (
-            <div className="mt-8 pt-6 border-t border-gray-200">
-              <h3 className="font-medium text-gray-700 mb-4">Subtree View:</h3>
-              <div className="space-y-1">
-                {subtree.map((node) => (
-                  <div
-                    key={node.id}
-                    className="flex items-center"
-                    style={{ paddingLeft: `${node.depth * 24}px` }}
-                  >
-                    <span className="w-6 h-6 flex items-center justify-center text-gray-400">
-                      {node.depth === 0 ? '👤' : node.depth === 1 ? '👶' : ' ➡'}
-                    </span>
-                    <span>{node.id.slice(0, 8)}... (depth: {node.depth})</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+              {userList.map((u) => (
+                <button
+                  key={u.id}
+                  onClick={() => loadSubtree(u.id)}
+                  className={
+                    'text-left px-4 py-3 rounded-lg border transition-colors ' +
+                    (subtreeRoot === u.id ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100')
+                  }
+                >
+                  <div className="font-medium text-slate-900 truncate">{u.email}</div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <RoleBadge role={u.role} />
+                    <ActiveBadge active={u.isActive} />
                   </div>
-                ))}
-              </div>
-              <p className="text-sm text-gray-500 mt-4">
-                * This shows the recursive subtree for the selected user. Depth 0 = the user themselves.
-              </p>
+                  <div className="text-xs text-slate-400 mt-1 font-mono">{u.id.slice(0, 8)}…</div>
+                </button>
+              ))}
             </div>
           )}
-        </div>
 
-        {/* Commission Config + Account Management — chỉ CRUD được con trực tiếp (Lv1) */}
+          {loadingSubtree && <Loading label="Đang tải cây con..." />}
+
+          {!loadingSubtree && subtree.length > 0 && (
+            <div className="mt-6 pt-6 border-t border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Subtree view</h3>
+              <div className="space-y-1">
+                {subtree.map((node) => {
+                  const info = userById.get(node.id);
+                  return (
+                    <div key={node.id} className="flex items-center gap-2 py-1" style={{ paddingLeft: `${node.depth * 20}px` }}>
+                      <span className="text-slate-300 text-xs w-4 shrink-0">{node.depth === 0 ? '●' : '└'}</span>
+                      <span className="font-mono text-sm text-slate-600">{node.id.slice(0, 8)}…</span>
+                      <span className="text-xs text-slate-400">depth {node.depth}</span>
+                      {info && <RoleBadge role={info.role} />}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-slate-400 mt-3">Depth 0 = chính user bạn đã chọn.</p>
+            </div>
+          )}
+
+          {!loadingSubtree && subtree.length === 0 && subtreeRoot && (
+            <EmptyState title="User này chưa có con" />
+          )}
+        </Card>
+
         <CommissionManager />
 
-        {/* Asset List Section — view-only cho MIB */}
-        <div className="bg-white rounded-lg shadow-md p-6 mt-8">
-          <h2 className="text-xl font-bold mb-4">Asset List</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            * Danh sách tài sản (view-only). Chọn Asset để cấu hình hoa hồng cho con trực tiếp.
-          </p>
+        <Card title="Asset List" description="Danh sách tài sản (view-only). Chọn Asset để cấu hình hoa hồng cho con trực tiếp.">
           <AssetTable assets={assets} />
-        </div>
-      </div>
-    </div>
+        </Card>
+      </PageBody>
+    </PageShell>
   );
 }

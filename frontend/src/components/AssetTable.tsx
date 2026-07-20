@@ -1,7 +1,8 @@
 'use client';
 
-import { Asset, AssetCategory } from '../lib/api/admin';
+import { Asset } from '../lib/api/admin';
 import { useAuth } from '../context/auth-context';
+import { Badge, Button, EmptyState, Table, Th, Td } from './ui/primitives';
 
 interface AssetTableProps {
   assets: Asset[];
@@ -10,93 +11,80 @@ interface AssetTableProps {
   onDelete?: (asset: Asset) => void;
 }
 
+const categoryTone: Record<string, 'amber' | 'indigo' | 'teal' | 'blue' | 'slate' | 'violet'> = {
+  FOREX: 'blue',
+  METAL: 'amber',
+  ENERGY: 'violet',
+  COMMODITY: 'teal',
+  INDEX: 'indigo',
+  SHARES: 'indigo',
+  CRYPTO: 'violet',
+  OTHER: 'slate',
+};
+
 export default function AssetTable({ assets, onEditName, onToggleActive, onDelete }: AssetTableProps) {
   const { user } = useAuth();
   const isAdmin = user?.type === 'admin';
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('vi-VN');
-  };
+  const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString('vi-VN');
+
+  if (assets.length === 0) {
+    return <EmptyState icon="📦" title="Chưa có asset nào" description={isAdmin ? 'Tạo asset đầu tiên để bắt đầu cấu hình hoa hồng.' : undefined} />;
+  }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold">Asset List</h2>
-        {isAdmin && <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded">⚠️ ADMIN ONLY ACTIONS</span>}
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="px-4 py-2 text-left">Code</th>
-              <th className="px-4 py-2 text-left">Name</th>
-              <th className="px-4 py-2 text-left">Category</th>
-              <th className="px-4 py-2 text-left">Active</th>
-              <th className="px-4 py-2 text-left">Created</th>
-              {isAdmin && <th className="px-4 py-2 text-left">Actions</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {assets.length === 0 ? (
-              <tr>
-                <td colSpan={isAdmin ? 6 : 5} className="px-4 py-6 text-center text-gray-400">
-                  Chưa có asset nào
-                </td>
-              </tr>
-            ) : (
-              assets.map((a) => (
-                <tr key={a.id} className="border-t hover:bg-gray-50">
-                  <td className="px-4 py-2 font-mono text-sm">{a.code}</td>
-                  <td className="px-4 py-2">{a.name}</td>
-                  <td className="px-4 py-2">{a.category}</td>
-                  <td className="px-4 py-2">
-                    {a.isActive ? (
-                      <span className="text-green-600 font-medium">Yes</span>
-                    ) : (
-                      <span className="text-gray-400 text-sm">Ngừng hoạt động</span>
+    <div>
+      <Table>
+        <thead>
+          <tr>
+            <Th>Mã</Th>
+            <Th>Tên</Th>
+            <Th>Danh mục</Th>
+            <Th>Trạng thái</Th>
+            <Th className="hidden md:table-cell">Ngày tạo</Th>
+            {isAdmin && <Th className="text-right">Thao tác</Th>}
+          </tr>
+        </thead>
+        <tbody>
+          {assets.map((a) => (
+            <tr key={a.id} className="group hover:bg-slate-50/70">
+              <Td mono>{a.code}</Td>
+              <Td className="font-medium text-slate-900">{a.name}</Td>
+              <Td>
+                <Badge tone={categoryTone[a.category] ?? 'slate'}>{a.category}</Badge>
+              </Td>
+              <Td>
+                {a.isActive ? <Badge tone="emerald">● Active</Badge> : <Badge tone="slate">Ngừng hoạt động</Badge>}
+              </Td>
+              <Td className="hidden md:table-cell text-slate-400">{formatDate(a.createdAt)}</Td>
+              {isAdmin && (
+                <Td className="text-right whitespace-nowrap">
+                  <div className="inline-flex gap-1.5 opacity-70 group-hover:opacity-100 transition-opacity">
+                    {onEditName && (
+                      <Button size="sm" variant="ghost" onClick={() => onEditName(a)}>
+                        Sửa
+                      </Button>
                     )}
-                  </td>
-                  <td className="px-4 py-2 text-sm text-gray-500">{formatDate(a.createdAt)}</td>
-                  {isAdmin && (
-                    <td className="px-4 py-2 space-x-2">
-                      {onEditName && (
-                        <button
-                          onClick={() => onEditName(a)}
-                          className="text-blue-600 hover:underline text-sm"
-                        >
-                          Sửa tên
-                        </button>
-                      )}
-                      {onToggleActive && (
-                        <button
-                          onClick={() => onToggleActive(a)}
-                          className="text-yellow-600 hover:underline text-sm"
-                        >
-                          {a.isActive ? 'Vô hiệu hoá' : 'Kích hoạt'}
-                        </button>
-                      )}
-                      {onDelete && (
-                        <button
-                          onClick={() => onDelete(a)}
-                          className="text-red-600 hover:underline text-sm"
-                        >
-                          Xoá
-                        </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                    {onToggleActive && (
+                      <Button size="sm" variant="ghost" onClick={() => onToggleActive(a)}>
+                        {a.isActive ? 'Vô hiệu hoá' : 'Kích hoạt'}
+                      </Button>
+                    )}
+                    {onDelete && (
+                      <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50" onClick={() => onDelete(a)}>
+                        Xoá
+                      </Button>
+                    )}
+                  </div>
+                </Td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </Table>
 
       {!isAdmin && (
-        <p className="text-gray-500 text-sm mt-4">
-          * Chỉ Admin có thể tạo/sửa/xoá asset. MIB/IB chỉ xem được danh sách.
-        </p>
+        <p className="text-xs text-slate-400 mt-4">Chỉ Admin có thể tạo, sửa hoặc xoá asset. MIB/IB chỉ xem được danh sách.</p>
       )}
     </div>
   );

@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { CreateUserDto } from '../lib/api/admin';
+import { Dialog, FormError } from './ui/Dialog';
+import { Button, Field, Input, Select } from './ui/primitives';
 
 interface UserFormDialogProps {
   open: boolean;
@@ -10,12 +12,7 @@ interface UserFormDialogProps {
   isLoading?: boolean;
 }
 
-export default function UserFormDialog({
-  open,
-  onClose,
-  onSave,
-  isLoading,
-}: UserFormDialogProps) {
+export default function UserFormDialog({ open, onClose, onSave, isLoading }: UserFormDialogProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -27,19 +24,9 @@ export default function UserFormDialog({
     e.preventDefault();
     setError(null);
 
-    // Client-side validation
-    if (!email.trim()) {
-      setError('Email là bắt buộc');
-      return;
-    }
-    if (!password.trim()) {
-      setError('Mật khẩu là bắt buộc');
-      return;
-    }
-    if (!fullName.trim()) {
-      setError('Họ tên là bắt buộc');
-      return;
-    }
+    if (!email.trim()) return setError('Email là bắt buộc');
+    if (!password.trim()) return setError('Mật khẩu là bắt buộc');
+    if (!fullName.trim()) return setError('Họ tên là bắt buộc');
 
     const dto: CreateUserDto = {
       email: email.trim(),
@@ -51,108 +38,55 @@ export default function UserFormDialog({
 
     try {
       await onSave(dto);
-      onClose();
     } catch (err: any) {
-      // Backend error message (already translated to Vietnamese)
       setError(err?.body?.message || err?.message || 'Lỗi không xác định');
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-xl font-bold mb-4">Tạo User mới</h2>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Tạo User mới"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={isLoading}>
+            Hủy
+          </Button>
+          <Button type="submit" form="user-form" disabled={isLoading}>
+            {isLoading ? 'Đang tạo...' : 'Tạo User'}
+          </Button>
+        </>
+      }
+    >
+      <form id="user-form" onSubmit={handleSubmit} className="space-y-4">
+        <Field label="Email" required>
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com" disabled={isLoading} />
+        </Field>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="email@example.com"
-              disabled={isLoading}
-            />
-          </div>
+        <Field label="Mật khẩu" required>
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" disabled={isLoading} />
+        </Field>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Mật khẩu *</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="******"
-              disabled={isLoading}
-            />
-          </div>
+        <Field label="Họ tên" required>
+          <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nguyen Van A" disabled={isLoading} />
+        </Field>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Họ tên *</label>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Nguyen Van A"
-              disabled={isLoading}
-            />
-          </div>
+        <Field label="Vai trò" required>
+          <Select value={role} onChange={(e) => setRole(e.target.value as 'MIB' | 'IB')} disabled={isLoading}>
+            <option value="MIB">MIB (Root)</option>
+            <option value="IB">IB (Con)</option>
+          </Select>
+        </Field>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Vai trò *</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as 'MIB' | 'IB')}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={isLoading}
-            >
-              <option value="MIB">MIB (Root)</option>
-              <option value="IB">IB (Con)</option>
-            </select>
-          </div>
+        {role === 'IB' && (
+          <Field label="Parent ID (chỉ áp dụng với IB)" required hint="Paste UUID của cha. IB phải có parentId; MIB không có parentId.">
+            <Input value={parentId} onChange={(e) => setParentId(e.target.value)} placeholder="Paste UUID của cha (MIB hoặc IB đã tồn tại)" disabled={isLoading} />
+          </Field>
+        )}
 
-          {role === 'IB' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Parent ID (chỉ áp dụng với IB) *</label>
-              <input
-                type="text"
-                value={parentId}
-                onChange={(e) => setParentId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Paste UUID của cha (MIB hoặc IB đã tồn tại)"
-                disabled={isLoading}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Paste UUID của cha. IB phải có parentId; MIB không có parentId.
-              </p>
-            </div>
-          )}
-
-          {error && <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
-
-          <div className="flex justify-end space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              disabled={isLoading}
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-            >
-              {isLoading ? 'Đang tạo...' : 'Tạo User'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <FormError>{error}</FormError>
+      </form>
+    </Dialog>
   );
 }

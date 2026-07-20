@@ -10,6 +10,23 @@ import {
   CommissionConfigSelf,
   CommissionConfigChild,
 } from '../lib/api/commission-config';
+import { Dialog, FormError } from './ui/Dialog';
+import {
+  ActiveBadge,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Input,
+  InfoBanner,
+  Loading,
+  Select,
+  Table,
+  Th,
+  Td,
+} from './ui/primitives';
+import BulkAssetConfigDialog from './BulkAssetConfigDialog';
 
 interface UserRecord {
   id: string;
@@ -40,32 +57,6 @@ interface Template {
   items: TemplateItem[];
 }
 
-interface ChildConfigInfo {
-  userId: string;
-  email: string;
-  role: string;
-  isActive: boolean;
-  rebateUnit: number | null;
-  markupPips: number | null;
-  version?: number | null;
-}
-
-interface UpsertConfigForm {
-  userId: string;
-  rebateUnit: string;
-  markupPips: string;
-}
-
-interface UpdateConfigForm {
-  userId: string;
-  version: string;
-  rebateUnit: string;
-  markupPips: string;
-}
-
-const emptyUpsertForm: UpsertConfigForm = { userId: '', rebateUnit: '', markupPips: '' };
-const emptyUpdateForm: UpdateConfigForm = { userId: '', version: '', rebateUnit: '', markupPips: '' };
-
 /**
  * Dùng chung cho cả MIB và IB. Quy tắc vàng (đã enforce ở backend, component
  * này chỉ cung cấp UI đúng luồng, KHÔNG tự ý nới quyền):
@@ -88,22 +79,14 @@ export default function CommissionManager() {
   const [directChildren, setDirectChildren] = useState<UserRecord[]>([]);
   const [selfInfo, setSelfInfo] = useState<CommissionConfigSelf | null>(null);
   const [childrenConfig, setChildrenConfig] = useState<Map<string, CommissionConfigChild>>(new Map());
-
   const [loadingChildren, setLoadingChildren] = useState(false);
 
-  const [createChildForm, setCreateChildForm] = useState({ email: '', password: '', fullName: '' });
+  // ---- Dialog visibility state ----
+  const [createChildOpen, setCreateChildOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<UserRecord | null>(null);
-  const [editAccountForm, setEditAccountForm] = useState<{ fullName: string; isActive: boolean }>({
-    fullName: '',
-    isActive: true,
-  });
-
-  const [upsertForm, setUpsertForm] = useState<UpsertConfigForm>(emptyUpsertForm);
-  const [updateForm, setUpdateForm] = useState<UpdateConfigForm>(emptyUpdateForm);
-
-  const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [applyTargetUserId, setApplyTargetUserId] = useState('');
-  const [applying, setApplying] = useState(false);
+  const [configDialogChild, setConfigDialogChild] = useState<UserRecord | null>(null);
+  const [bulkConfigChild, setBulkConfigChild] = useState<UserRecord | null>(null);
+  const [applyTemplateOpen, setApplyTemplateOpen] = useState(false);
 
   // ---- Load Assets + Templates (created by Admin, reused here) ----
   useEffect(() => {
@@ -192,450 +175,518 @@ export default function CommissionManager() {
   };
 
   // ---- Account CRUD (direct children only) ----
-  const handleCreateChild = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateChild = async (dto: { email: string; password: string; fullName: string }) => {
     if (!ownId) return;
-    try {
-      await api.post<UserRecord>('/users', {
-        email: createChildForm.email,
-        password: createChildForm.password,
-        fullName: createChildForm.fullName || undefined,
-        role: 'IB', // Rule vàng: LvN chỉ tạo được LvN+1 = IB, không được tạo MIB (root) khác
-        parentId: ownId,
-      });
-      setCreateChildForm({ email: '', password: '', fullName: '' });
-      alert('Tạo tài khoản con thành công!');
-      refreshAll();
-    } catch (error: any) {
-      alert(`Tạo thất bại: ${error.message}`);
-    }
+    await api.post<UserRecord>('/users', {
+      email: dto.email,
+      password: dto.password,
+      fullName: dto.fullName || undefined,
+      role: 'IB', // Rule vàng: LvN chỉ tạo được LvN+1 = IB, không được tạo MIB (root) khác
+      parentId: ownId,
+    });
+    setCreateChildOpen(false);
+    refreshAll();
   };
 
-  const handleEditAccountSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleEditAccountSubmit = async (dto: { fullName: string; isActive: boolean }) => {
     if (!editingAccount) return;
-    try {
-      await api.patch(`/users/${editingAccount.id}`, editAccountForm);
-      alert('Cập nhật tài khoản thành công!');
-      setEditingAccount(null);
-      refreshAll();
-    } catch (error: any) {
-      alert(`Cập nhật thất bại: ${error.message}`);
-    }
+    await api.patch(`/users/${editingAccount.id}`, dto);
+    setEditingAccount(null);
+    refreshAll();
   };
 
-  // ---- Commission config CRUD (direct children only, backend enforces cap + parent-only) ----
-  const handleUpsertConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!upsertForm.userId || !selectedAssetId) {
-      alert('Vui lòng chọn User (con trực tiếp) và Asset');
-      return;
-    }
-    try {
+  // ---- Single-asset config (create-or-update in one dialog) ----
+  const handleSetConfig = async (dto: { rebateUnit: number; markupPips: number }) => {
+    if (!configDialogChild || !selectedAssetId) return;
+    const existing = childrenConfig.get(configDialogChild.id);
+    if (existing?.version != null) {
+      // Đã có config — dùng update kèm version cho optimistic lock.
+      await updateConfig(configDialogChild.id, selectedAssetId, {
+        rebateUnit: dto.rebateUnit,
+        markupPips: dto.markupPips,
+        version: existing.version,
+      });
+    } else {
       await upsertConfig({
-        userId: upsertForm.userId,
+        userId: configDialogChild.id,
         assetId: selectedAssetId,
-        rebateUnit: parseFloat(upsertForm.rebateUnit) || 0,
-        markupPips: parseFloat(upsertForm.markupPips) || 0,
+        rebateUnit: dto.rebateUnit,
+        markupPips: dto.markupPips,
       });
-      alert('Set config thành công!');
-      setUpsertForm(emptyUpsertForm);
-      loadChildrenConfig(selectedAssetId);
-    } catch (error: any) {
-      alert(`Thất bại: ${error.message}`);
     }
+    setConfigDialogChild(null);
+    loadChildrenConfig(selectedAssetId);
   };
 
-  const handleUpdateConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!updateForm.userId || !selectedAssetId || !updateForm.version) {
-      alert('Vui lòng chọn User, đảm bảo đã chọn Asset, và nhập Version hiện tại');
-      return;
-    }
-    try {
-      await updateConfig(updateForm.userId, selectedAssetId, {
-        rebateUnit: updateForm.rebateUnit ? parseFloat(updateForm.rebateUnit) : undefined,
-        markupPips: updateForm.markupPips ? parseFloat(updateForm.markupPips) : undefined,
-        version: parseInt(updateForm.version, 10),
-      });
-      alert('Update config thành công!');
-      setUpdateForm(emptyUpdateForm);
-      loadChildrenConfig(selectedAssetId);
-    } catch (error: any) {
-      if (error.status === 409) {
-        alert('Version conflict — dữ liệu đã bị đổi bởi người khác. Tải lại rồi thử lại.');
-      } else {
-        alert(`Thất bại: ${error.message}`);
-      }
-    }
-  };
-
-  const prefillConfigForms = (childUserId: string) => {
-    const cfg = childrenConfig.get(childUserId);
-    setUpsertForm({
-      userId: childUserId,
-      rebateUnit: cfg?.rebateUnit != null ? String(cfg.rebateUnit) : '',
-      markupPips: cfg?.markupPips != null ? String(cfg.markupPips) : '',
-    });
-    setUpdateForm({
-      userId: childUserId,
-      version: cfg?.version != null ? String(cfg.version) : '',
-      rebateUnit: cfg?.rebateUnit != null ? String(cfg.rebateUnit) : '',
-      markupPips: cfg?.markupPips != null ? String(cfg.markupPips) : '',
-    });
-    document.getElementById('config-forms')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
-  // Dùng endpoint thật POST /templates/:templateId/apply/:userId — chạy
+  // Dùng thẳng endpoint thật POST /templates/:templateId/apply/:userId — chạy
   // trong 1 transaction ở backend (xem template-apply.service.ts), rollback
-  // toàn bộ nếu 1 asset lỗi (vd vượt cap). An toàn hơn hẳn cách cũ là tự lặp
-  // gọi POST /commission-configs từng asset ở client (dễ áp dở dang nếu giữa
-  // chừng có asset lỗi).
-  const handleApplyTemplate = async () => {
-    if (!selectedTemplateId || !applyTargetUserId) {
-      alert('Vui lòng chọn Template và User (con trực tiếp) để áp dụng');
-      return;
-    }
-    setApplying(true);
-    try {
-      const applied = await api.post<any[]>(`/templates/${selectedTemplateId}/apply/${applyTargetUserId}`, {});
-      alert(`Áp dụng Template thành công cho ${applied.length} asset!`);
-      if (selectedAssetId) loadChildrenConfig(selectedAssetId);
-    } catch (error: any) {
-      // Backend rollback toàn bộ nếu 1 item lỗi — message đã kèm rõ assetId nào gây lỗi
-      alert(`Áp dụng thất bại: ${error.message}`);
-    } finally {
-      setApplying(false);
-    }
+  // toàn bộ nếu 1 asset lỗi (vd vượt cap).
+  const handleApplyTemplate = async (templateId: string, targetUserId: string) => {
+    const applied = await api.post<any[]>(`/templates/${templateId}/apply/${targetUserId}`, {});
+    setApplyTemplateOpen(false);
+    if (selectedAssetId) loadChildrenConfig(selectedAssetId);
+    return applied.length;
   };
 
   if (!ownId) return null;
 
+  const selectedAsset = assets.find((a) => a.id === selectedAssetId);
+
   return (
     <div className="space-y-6 mt-6">
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <p className="text-sm text-blue-800">
-          <strong>Quy tắc:</strong> bạn chỉ CRUD được tài khoản và cấu hình rebate/markup cho{' '}
-          <strong>con trực tiếp</strong> của chính mình (không quản lý hộ cháu/chắt). Cấu hình của{' '}
-          <strong>chính bạn</strong> chỉ được set bởi cấp cao hơn (Admin hoặc cha trực tiếp của bạn) — vì
-          vậy không có nút sửa ở dòng "Cấu hình của bạn" bên dưới.
-        </p>
-      </div>
+      <InfoBanner>
+        <strong>Quy tắc:</strong> bạn chỉ quản lý được tài khoản và cấu hình rebate/markup cho{' '}
+        <strong>con trực tiếp</strong> của chính mình — không quản lý hộ cháu/chắt. Cấu hình của{' '}
+        <strong>chính bạn</strong> chỉ được set bởi cấp cao hơn (Admin hoặc cha trực tiếp của bạn).
+      </InfoBanner>
 
-      {/* Asset selector */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-bold mb-4">Chọn Asset</h2>
-        {loadingLookups && <p className="text-sm text-gray-500 mb-2">Đang tải danh sách asset/template...</p>}
+      {/* Asset selector + self cap */}
+      <Card title="Asset đang xem" description="Chọn asset để xem/sửa cấu hình rebate & markup cho con trực tiếp.">
+        {loadingLookups && <p className="text-sm text-slate-400 mb-3">Đang tải danh sách asset/template...</p>}
         {assetsError && (
-          <p className="text-sm text-red-600 mb-2">
-            Không tải được danh sách Asset ({assetsError}) — có thể route <code>/admin/assets</code> đang
-            chặn non-Admin, cần backend mở quyền đọc (GET) cho MIB/IB.
+          <p className="text-sm text-rose-600 mb-3">
+            Không tải được danh sách Asset ({assetsError}) — có thể route <code>/admin/assets</code> đang chặn
+            non-Admin, cần backend mở quyền đọc (GET) cho MIB/IB.
           </p>
         )}
-        <select
-          value={selectedAssetId}
-          onChange={(e) => setSelectedAssetId(e.target.value)}
-          className="w-full md:w-1/2 px-3 py-2 border rounded"
-        >
-          <option value="">-- Select Asset --</option>
-          {assets.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.code} ({a.name})
-            </option>
-          ))}
-        </select>
-
-        {selfInfo && (
-          <div className="mt-4 border p-4 rounded bg-gray-50">
-            <h3 className="font-medium">Cấu hình của bạn ({selfInfo.email}):</h3>
-            <p className="text-sm text-gray-600">
-              Rebate: {selfInfo.rebateUnit ?? 'N/A'} — Markup: {selfInfo.markupPips ?? 'N/A'}
-            </p>
+        <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+          <div className="w-full sm:w-72">
+            <Select value={selectedAssetId} onChange={(e) => setSelectedAssetId(e.target.value)}>
+              <option value="">-- Select Asset --</option>
+              {assets.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.code} ({a.name})
+                </option>
+              ))}
+            </Select>
           </div>
-        )}
-      </div>
+
+          {selfInfo && (
+            <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
+              <span className="text-xs text-slate-500">Cấu hình của bạn ({selfInfo.email}):</span>
+              <span className="text-sm font-semibold tabular-nums text-slate-900">
+                Rebate {selfInfo.rebateUnit ?? '—'} · Markup {selfInfo.markupPips ?? '—'}
+              </span>
+              <Badge tone="indigo">trần cho con</Badge>
+            </div>
+          )}
+        </div>
+      </Card>
 
       {/* Direct children table: account info + commission config combined */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-bold mb-4">Con trực tiếp của bạn</h2>
-        {loadingChildren && <p className="text-sm text-gray-500 mb-2">Đang tải cấu hình...</p>}
-        {directChildren.length === 0 ? (
-          <p className="text-gray-500">Chưa có con trực tiếp nào. Tạo mới bên dưới.</p>
+      <Card
+        title="Con trực tiếp của bạn"
+        description={selectedAsset ? `Đang xem cấu hình cho asset ${selectedAsset.code}` : undefined}
+        actions={
+          <>
+            <Button size="sm" variant="secondary" onClick={() => setApplyTemplateOpen(true)}>
+              Áp dụng Template
+            </Button>
+            <Button size="sm" onClick={() => setCreateChildOpen(true)}>
+              + Tạo tài khoản con
+            </Button>
+          </>
+        }
+      >
+        {loadingChildren && <Loading label="Đang tải cấu hình..." />}
+        {!loadingChildren && directChildren.length === 0 ? (
+          <EmptyState icon="👤" title="Chưa có con trực tiếp nào" description='Bấm "+ Tạo tài khoản con" để bắt đầu.' />
         ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="px-4 py-2 text-left">Email</th>
-                <th className="px-4 py-2 text-left">Full Name</th>
-                <th className="px-4 py-2 text-left">Role</th>
-                <th className="px-4 py-2 text-left">Active</th>
-                <th className="px-4 py-2 text-left">Rebate</th>
-                <th className="px-4 py-2 text-left">Markup</th>
-                <th className="px-4 py-2 text-left">Version</th>
-                <th className="px-4 py-2 text-left"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {directChildren.map((child) => {
-                const cfg = childrenConfig.get(child.id);
-                return (
-                  <tr key={child.id} className="border-t">
-                    <td className="px-4 py-2">{child.email}</td>
-                    <td className="px-4 py-2">{child.fullName || 'N/A'}</td>
-                    <td className="px-4 py-2">{child.role}</td>
-                    <td className="px-4 py-2">{child.isActive ? 'Yes' : 'No'}</td>
-                    <td className="px-4 py-2">{cfg?.rebateUnit ?? 'N/A'}</td>
-                    <td className="px-4 py-2">{cfg?.markupPips ?? 'N/A'}</td>
-                    <td className="px-4 py-2">{cfg?.version ?? 'N/A'}</td>
-                    <td className="px-4 py-2 space-x-2 whitespace-nowrap">
-                      <button
-                        onClick={() => {
-                          setEditingAccount(child);
-                          setEditAccountForm({ fullName: child.fullName ?? '', isActive: child.isActive });
-                        }}
-                        className="bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-sm"
-                      >
-                        Sửa TK
-                      </button>
-                      <button
-                        onClick={() => prefillConfigForms(child.id)}
-                        className="bg-blue-200 hover:bg-blue-300 px-3 py-1 rounded text-sm"
-                        disabled={!selectedAssetId}
-                        title={!selectedAssetId ? 'Chọn Asset trước' : ''}
-                      >
-                        Sửa Config
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          !loadingChildren && (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Email</Th>
+                  <Th className="hidden md:table-cell">Họ tên</Th>
+                  <Th>Trạng thái</Th>
+                  <Th>Rebate</Th>
+                  <Th>Markup</Th>
+                  <Th className="text-right">Thao tác</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {directChildren.map((child) => {
+                  const cfg = childrenConfig.get(child.id);
+                  const hasConfig = cfg?.rebateUnit != null;
+                  return (
+                    <tr key={child.id} className="hover:bg-slate-50/70">
+                      <Td className="font-medium text-slate-900">{child.email}</Td>
+                      <Td className="hidden md:table-cell">{child.fullName || <span className="text-slate-300">—</span>}</Td>
+                      <Td>
+                        <ActiveBadge active={child.isActive} />
+                      </Td>
+                      <Td mono>{cfg?.rebateUnit ?? <span className="font-sans text-slate-300">chưa set</span>}</Td>
+                      <Td mono>{cfg?.markupPips ?? <span className="font-sans text-slate-300">chưa set</span>}</Td>
+                      <Td className="text-right whitespace-nowrap">
+                        <div className="inline-flex gap-1.5">
+                          <Button size="sm" variant="ghost" onClick={() => setEditingAccount(child)}>
+                            Sửa TK
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-indigo-600"
+                            disabled={!selectedAssetId}
+                            title={!selectedAssetId ? 'Chọn Asset trước' : ''}
+                            onClick={() => setConfigDialogChild(child)}
+                          >
+                            {hasConfig ? 'Sửa Config' : '+ Set Config'}
+                          </Button>
+                          <Button size="sm" variant="secondary" onClick={() => setBulkConfigChild(child)}>
+                            Nhiều Asset
+                          </Button>
+                        </div>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          )
         )}
-      </div>
+      </Card>
 
-      {/* Edit account form */}
+      {/* ---------------- Dialogs ---------------- */}
+
+      <CreateChildDialog open={createChildOpen} onClose={() => setCreateChildOpen(false)} onSave={handleCreateChild} />
+
       {editingAccount && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold mb-4">Sửa tài khoản: {editingAccount.email}</h2>
-          <form onSubmit={handleEditAccountSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={editAccountForm.fullName}
-                onChange={(e) => setEditAccountForm({ ...editAccountForm, fullName: e.target.value })}
-                className="px-3 py-2 border rounded"
-              />
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="editIsActive"
-                  checked={editAccountForm.isActive}
-                  onChange={(e) => setEditAccountForm({ ...editAccountForm, isActive: e.target.checked })}
-                  className="mr-2"
-                />
-                <label htmlFor="editIsActive">Active</label>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                Lưu
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditingAccount(null)}
-                className="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500"
-              >
-                Huỷ
-              </button>
-            </div>
-          </form>
-        </div>
+        <EditAccountDialog
+          user={editingAccount}
+          onClose={() => setEditingAccount(null)}
+          onSave={handleEditAccountSubmit}
+        />
       )}
 
-      {/* Create new direct child */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-bold mb-4">Tạo tài khoản con mới (IB)</h2>
-        <form onSubmit={handleCreateChild} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <input
-              type="email"
-              placeholder="Email"
-              value={createChildForm.email}
-              onChange={(e) => setCreateChildForm({ ...createChildForm, email: e.target.value })}
-              required
-              className="px-3 py-2 border rounded"
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={createChildForm.password}
-              onChange={(e) => setCreateChildForm({ ...createChildForm, password: e.target.value })}
-              required
-              className="px-3 py-2 border rounded"
-            />
-          </div>
+      {configDialogChild && selectedAssetId && (
+        <SetConfigDialog
+          child={configDialogChild}
+          assetLabel={selectedAsset ? `${selectedAsset.code} — ${selectedAsset.name}` : ''}
+          existing={childrenConfig.get(configDialogChild.id) ?? null}
+          selfCap={selfInfo}
+          onClose={() => setConfigDialogChild(null)}
+          onSave={handleSetConfig}
+        />
+      )}
+
+      <BulkAssetConfigDialog
+        open={!!bulkConfigChild}
+        onClose={() => setBulkConfigChild(null)}
+        ownId={ownId}
+        targetUser={bulkConfigChild}
+        assets={assets}
+        templates={templates}
+        onDone={() => {
+          setBulkConfigChild(null);
+          if (selectedAssetId) loadChildrenConfig(selectedAssetId);
+        }}
+      />
+
+      <ApplyTemplateDialog
+        open={applyTemplateOpen}
+        onClose={() => setApplyTemplateOpen(false)}
+        templates={templates}
+        templatesError={templatesError}
+        directChildren={directChildren}
+        onApply={handleApplyTemplate}
+      />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Small dialogs local to CommissionManager                            */
+/* ------------------------------------------------------------------ */
+
+function CreateChildDialog({
+  open,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSave: (dto: { email: string; password: string; fullName: string }) => Promise<void>;
+}) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => {
+    setEmail('');
+    setPassword('');
+    setFullName('');
+    setError(null);
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await onSave({ email, password, fullName });
+      reset();
+    } catch (err: any) {
+      setError(err?.body?.message || err?.message || 'Lỗi không xác định');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Tạo tài khoản con mới (IB)"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>
+            Hủy
+          </Button>
+          <Button type="submit" form="create-child-form" disabled={loading}>
+            {loading ? 'Đang tạo...' : 'Tạo con trực tiếp'}
+          </Button>
+        </>
+      }
+    >
+      <form id="create-child-form" onSubmit={submit} className="space-y-4">
+        <Field label="Email" required>
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required disabled={loading} />
+        </Field>
+        <Field label="Mật khẩu" required>
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required disabled={loading} />
+        </Field>
+        <Field label="Họ tên">
+          <Input value={fullName} onChange={(e) => setFullName(e.target.value)} disabled={loading} />
+        </Field>
+        <FormError>{error}</FormError>
+      </form>
+    </Dialog>
+  );
+}
+
+function EditAccountDialog({
+  user,
+  onClose,
+  onSave,
+}: {
+  user: { email: string; fullName?: string | null; isActive: boolean };
+  onClose: () => void;
+  onSave: (dto: { fullName: string; isActive: boolean }) => Promise<void>;
+}) {
+  const [fullName, setFullName] = useState(user.fullName ?? '');
+  const [isActive, setIsActive] = useState(user.isActive);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await onSave({ fullName, isActive });
+    } catch (err: any) {
+      setError(err?.body?.message || err?.message || 'Lỗi không xác định');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Sửa tài khoản: ${user.email}`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>
+            Huỷ
+          </Button>
+          <Button type="submit" form="edit-account-form" disabled={loading}>
+            {loading ? 'Đang lưu...' : 'Lưu'}
+          </Button>
+        </>
+      }
+    >
+      <form id="edit-account-form" onSubmit={submit} className="space-y-4">
+        <Field label="Họ tên">
+          <Input value={fullName} onChange={(e) => setFullName(e.target.value)} disabled={loading} />
+        </Field>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
           <input
-            type="text"
-            placeholder="Full Name (optional)"
-            value={createChildForm.fullName}
-            onChange={(e) => setCreateChildForm({ ...createChildForm, fullName: e.target.value })}
-            className="w-full px-3 py-2 border rounded"
+            type="checkbox"
+            checked={isActive}
+            onChange={(e) => setIsActive(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
           />
-          <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-            Tạo con trực tiếp
-          </button>
-        </form>
-      </div>
+          Tài khoản đang hoạt động
+        </label>
+        <FormError>{error}</FormError>
+      </form>
+    </Dialog>
+  );
+}
 
-      {/* Create/Update commission config forms */}
-      <div id="config-forms" className="bg-white rounded-lg shadow-md p-6 space-y-6">
-        <h2 className="text-xl font-bold">Set Commission Config cho con trực tiếp</h2>
-        <p className="text-sm text-gray-500">
-          Bấm "Sửa Config" ở bảng trên để tự điền — hoặc chọn tay bên dưới. Giá trị Rebate/Markup không
-          được vượt quá giá trị hiện tại của chính bạn cho asset này (backend tự chặn nếu vi phạm).
-        </p>
+function SetConfigDialog({
+  child,
+  assetLabel,
+  existing,
+  selfCap,
+  onClose,
+  onSave,
+}: {
+  child: { email: string };
+  assetLabel: string;
+  existing: CommissionConfigChild | null;
+  selfCap: CommissionConfigSelf | null;
+  onClose: () => void;
+  onSave: (dto: { rebateUnit: number; markupPips: number }) => Promise<void>;
+}) {
+  const [rebateUnit, setRebateUnit] = useState(existing?.rebateUnit != null ? String(existing.rebateUnit) : '');
+  const [markupPips, setMarkupPips] = useState(existing?.markupPips != null ? String(existing.markupPips) : '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-        <form onSubmit={handleUpsertConfig} className="space-y-4">
-          <h3 className="font-medium">Create / Set Config</h3>
-          <div className="grid grid-cols-3 gap-4">
-            <select
-              value={upsertForm.userId}
-              onChange={(e) => setUpsertForm({ ...upsertForm, userId: e.target.value })}
-              required
-              className="px-3 py-2 border rounded"
-            >
-              <option value="">-- Select con trực tiếp --</option>
-              {directChildren.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.email}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              placeholder="Rebate Unit"
-              value={upsertForm.rebateUnit}
-              onChange={(e) => setUpsertForm({ ...upsertForm, rebateUnit: e.target.value })}
-              min="0"
-              step="0.0001"
-              required
-              className="px-3 py-2 border rounded"
-            />
-            <input
-              type="number"
-              placeholder="Markup Pips"
-              value={upsertForm.markupPips}
-              onChange={(e) => setUpsertForm({ ...upsertForm, markupPips: e.target.value })}
-              min="0"
-              step="0.0001"
-              required
-              className="px-3 py-2 border rounded"
-            />
-          </div>
-          <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-            Set Config
-          </button>
-        </form>
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await onSave({ rebateUnit: parseFloat(rebateUnit) || 0, markupPips: parseFloat(markupPips) || 0 });
+    } catch (err: any) {
+      if (err.status === 409) {
+        setError('Dữ liệu đã bị đổi bởi người khác. Đóng form, mở lại để lấy version mới nhất rồi thử lại.');
+      } else {
+        setError(err?.body?.message || err?.message || 'Lỗi không xác định');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        <form onSubmit={handleUpdateConfig} className="space-y-4 pt-6 border-t">
-          <h3 className="font-medium">Update Existing (optimistic lock qua version)</h3>
-          <div className="grid grid-cols-4 gap-4">
-            <select
-              value={updateForm.userId}
-              onChange={(e) => setUpdateForm({ ...updateForm, userId: e.target.value })}
-              required
-              className="px-3 py-2 border rounded"
-            >
-              <option value="">-- Select con trực tiếp --</option>
-              {directChildren.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.email}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              placeholder="Current Version"
-              value={updateForm.version}
-              onChange={(e) => setUpdateForm({ ...updateForm, version: e.target.value })}
-              required
-              className="px-3 py-2 border rounded"
-            />
-            <input
-              type="number"
-              placeholder="New Rebate (optional)"
-              value={updateForm.rebateUnit}
-              onChange={(e) => setUpdateForm({ ...updateForm, rebateUnit: e.target.value })}
-              min="0"
-              step="0.0001"
-              className="px-3 py-2 border rounded"
-            />
-            <input
-              type="number"
-              placeholder="New Markup (optional)"
-              value={updateForm.markupPips}
-              onChange={(e) => setUpdateForm({ ...updateForm, markupPips: e.target.value })}
-              min="0"
-              step="0.0001"
-              className="px-3 py-2 border rounded"
-            />
-          </div>
-          <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-            Update Config
-          </button>
-        </form>
-      </div>
-
-      {/* Apply Template */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-bold mb-4">Áp dụng Template (do Admin tạo) cho con trực tiếp</h2>
-        {templatesError && (
-          <p className="text-sm text-red-600 mb-2">
-            Không tải được danh sách Template ({templatesError}) — có thể route{' '}
-            <code>/admin/templates</code> đang chặn non-Admin, cần backend mở quyền đọc (GET) cho MIB/IB.
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`${existing ? 'Sửa' : 'Set'} Config — ${child.email}`}
+      description={`Asset: ${assetLabel}`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>
+            Huỷ
+          </Button>
+          <Button type="submit" form="set-config-form" disabled={loading}>
+            {loading ? 'Đang lưu...' : 'Lưu'}
+          </Button>
+        </>
+      }
+    >
+      <form id="set-config-form" onSubmit={submit} className="space-y-4">
+        {selfCap && (
+          <p className="text-xs text-slate-400">
+            Trần của bạn cho asset này: Rebate {selfCap.rebateUnit ?? '—'} · Markup {selfCap.markupPips ?? '—'}
           </p>
         )}
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <select
-            value={selectedTemplateId}
-            onChange={(e) => setSelectedTemplateId(e.target.value)}
-            className="px-3 py-2 border rounded"
-          >
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Rebate Unit" required>
+            <Input type="number" min="0" step="0.0001" value={rebateUnit} onChange={(e) => setRebateUnit(e.target.value)} required disabled={loading} />
+          </Field>
+          <Field label="Markup Pips" required>
+            <Input type="number" min="0" step="0.0001" value={markupPips} onChange={(e) => setMarkupPips(e.target.value)} required disabled={loading} />
+          </Field>
+        </div>
+        <FormError>{error}</FormError>
+      </form>
+    </Dialog>
+  );
+}
+
+function ApplyTemplateDialog({
+  open,
+  onClose,
+  templates,
+  templatesError,
+  directChildren,
+  onApply,
+}: {
+  open: boolean;
+  onClose: () => void;
+  templates: Template[];
+  templatesError: string | null;
+  directChildren: UserRecord[];
+  onApply: (templateId: string, targetUserId: string) => Promise<number>;
+}) {
+  const [templateId, setTemplateId] = useState('');
+  const [targetUserId, setTargetUserId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!templateId || !targetUserId) {
+      setError('Vui lòng chọn Template và User (con trực tiếp)');
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    try {
+      const count = await onApply(templateId, targetUserId);
+      alert(`Áp dụng Template thành công cho ${count} asset!`);
+      setTemplateId('');
+      setTargetUserId('');
+    } catch (err: any) {
+      setError(err?.body?.message || err?.message || 'Áp dụng thất bại');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Áp dụng Template cho con trực tiếp"
+      description="Chạy trong 1 transaction ở backend — nếu 1 asset vượt cap, toàn bộ request rollback."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>
+            Đóng
+          </Button>
+          <Button variant="success" onClick={submit} disabled={loading}>
+            {loading ? 'Đang áp dụng...' : 'Áp dụng Template'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {templatesError && (
+          <p className="text-sm text-rose-600">
+            Không tải được danh sách Template ({templatesError}) — có thể route <code>/admin/templates</code> đang
+            chặn non-Admin.
+          </p>
+        )}
+        <Field label="Template" required>
+          <Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
             <option value="">-- Select Template --</option>
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name} ({t.items?.length ?? 0} asset)
               </option>
             ))}
-          </select>
-          <select
-            value={applyTargetUserId}
-            onChange={(e) => setApplyTargetUserId(e.target.value)}
-            className="px-3 py-2 border rounded"
-          >
+          </Select>
+        </Field>
+        <Field label="Con trực tiếp" required>
+          <Select value={targetUserId} onChange={(e) => setTargetUserId(e.target.value)}>
             <option value="">-- Select con trực tiếp --</option>
             {directChildren.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.email}
               </option>
             ))}
-          </select>
-          <button
-            onClick={handleApplyTemplate}
-            disabled={applying}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50"
-          >
-            {applying ? 'Đang áp dụng...' : 'Áp dụng Template'}
-          </button>
-        </div>
-        <p className="text-sm text-gray-500">
-          Gọi <code>POST /templates/:templateId/apply/:userId</code> — chạy trong 1 transaction ở
-          backend. Nếu bất kỳ asset nào trong template vượt cap (giá trị hiện tại của bạn), TOÀN BỘ
-          request bị rollback và không asset nào được áp dụng — không còn tình trạng áp dở dang.
-        </p>
+          </Select>
+        </Field>
+        <FormError>{error}</FormError>
       </div>
-    </div>
+    </Dialog>
   );
 }
