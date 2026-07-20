@@ -74,16 +74,23 @@ Tham chiếu chéo: [`API_REFERENCE.md`](./API_REFERENCE.md) cho path/body/respo
 
 ## Flow 04 — Admin: Template CRUD
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Đã test — PASS
 **API dùng:** `POST/GET/PATCH/DELETE /admin/templates`
 **Component đề xuất:** `TemplateTable`, `TemplateFormDialog` (form thêm nhiều `TemplateItem`)
 
 ### Checklist test
-- [ ] Tạo template với 1-2 item cụ thể → thành công
-- [ ] Sau khi tạo, xem chi tiết → thấy các asset KHÔNG liệt kê tự động có item `(0,0)` (placeholder)
-- [ ] UI phân biệt rõ item Admin cố ý set vs item placeholder tự sinh (không để lẫn lộn)
-- [ ] Sửa template (đổi `name`/`items`) → cập nhật đúng
-- [ ] Xoá template → biến mất khỏi list
+- [x] Tạo template với 1-2 item cụ thể → thành công — PASS qua script `test-flow04-templates.js` (test 3) + tay trên UI
+- [x] Sau khi tạo, xem chi tiết → thấy các asset KHÔNG liệt kê tự động có item `(0,0)` (placeholder) — PASS qua script (test 4a-4c, verify đúng số lượng = tổng asset hệ thống) + tay trên UI
+- [x] UI phân biệt rõ item Admin cố ý set vs item placeholder tự sinh (không để lẫn lộn) — PASS tay trên UI (badge "Admin đã set" vs "Placeholder — không áp dụng khi Apply")
+- [x] Sửa template (đổi `name`/`items`) → cập nhật đúng — PASS qua script (test 5a-5d, xác nhận PATCH 1 item KHÔNG làm đổi các item khác) + tay trên UI
+- [x] Xoá template → biến mất khỏi list — PASS qua script (test 10a-10b) + tay trên UI
+
+### Bổ sung (sau khi hoàn thành)
+- Test API 20/20 PASS qua script `test-flow04-templates.js` (đã có sẵn trong `backend/test/`, chạy lại được bất kỳ lúc nào để regression test). Ngoài checklist gốc, script còn verify thêm: Apply Template lọc bỏ đúng item `(0,0)` placeholder (chỉ ghi item Admin thực sự set), xoá asset đang bị Template tham chiếu (item khác `0,0`) → 400 đúng như spec.
+- "Áp dụng Template" (Admin, bypass cap/orphan) đã dời từ tab Commission Configs sang route `/admin/templates` — xem `FRONTEND_CONVENTIONS.md` nếu cần đối chiếu lý do.
+
+### ⚠️ Phát hiện quan trọng cho Flow 06 (Commission Config: READ)
+Trong lúc viết test Flow 04, phát hiện `GET /commission-configs/children/:userId` yêu cầu **`assetId` là query param BẮT BUỘC**, không phải optional như dấu `?` trong `API_REFERENCE.md` dễ gây hiểu lầm — gọi thiếu `assetId` → 400. Rất có thể `GET /commission-configs/tree/:userId` (dùng ở Flow 06) cũng bị yêu cầu tương tự vì cùng pattern route. **Khi làm Flow 06, verify lại bằng log thật trước khi coi `assetId` là optional** — đừng suy đoán theo tài liệu cũ. Nên cập nhật lại `API_REFERENCE.md` mục Commission Config để ghi rõ `assetId` bắt buộc hay optional cho từng route, tránh lặp lại nhầm lẫn này.
 
 ---
 
