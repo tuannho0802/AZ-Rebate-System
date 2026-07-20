@@ -53,17 +53,22 @@ Tham chiếu chéo: [`API_REFERENCE.md`](./API_REFERENCE.md) cho path/body/respo
 
 ## Flow 03 — Admin: Users list + tạo User
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Đã test — PASS
 **API dùng:** `GET /users` (pagination, filter `parentId`), `POST /admin/users`
-**Component đề xuất:** `UserTable`, `UserFormDialog`
+**Component:** `UserTable`, `UserFormDialog`, route `/admin/users`
 
 ### Checklist test
-- [ ] List user phân trang đúng (`page`, `limit`)
-- [ ] `limit=101` → báo lỗi 400 (không cho gửi quá 100)
-- [ ] Filter theo `parentId` → chỉ hiện đúng con trực tiếp
-- [ ] Admin tạo MIB mới (không `parentId`) → thành công
-- [ ] Admin tạo IB mới (có `parentId`) → thành công
-- [ ] Tạo user email trùng → hiện lỗi rõ ràng
+- [x] List user phân trang đúng (`page`, `limit`) — verify qua `test-flow03-users.js` (GET /users trả đúng mảng theo `page`/`limit`); ⚠️ CHƯA verify riêng "trang 2 khác trang 1" bằng thao tác tay bấm Next trên UI, chỉ mới test `page=1`
+- [x] `limit=101` → báo lỗi 400 (không cho gửi quá 100) — PASS qua script, log thật
+- [x] Filter theo `parentId` → chỉ hiện đúng con trực tiếp — PASS qua script (verify cả 2 chiều: con có mặt, cha không lẫn vào)
+- [x] Admin tạo MIB mới (không `parentId`) → thành công — PASS qua script
+- [x] Admin tạo IB mới (có `parentId`) → thành công — PASS qua script
+- [x] Tạo user email trùng → hiện lỗi rõ ràng — PASS ở tầng API (400 + message); ⚠️ CHƯA xác nhận bằng mắt là message có hiện đúng trong `UserFormDialog` trên UI thật hay không (code review thấy đúng logic `setError(err.body.message)`, nhưng chưa thao tác tay confirm)
+
+### Bug đã gặp và fix trong quá trình làm Flow này
+- ⚠️ BUG (đã fix): Route conflict `/admin` vs `/admin/users` — `admin/page.tsx` vẫn tự render form+list User cũ song song route mới, gây trùng lặp khi vào `/admin`. Fix: thay bằng card redirect, cùng pattern với Assets/Templates.
+- ⚠️ BUG (đã fix): Runtime TypeError `Cannot read properties of undefined (reading 'length')` tại `UserTable` — nguyên nhân là `listUsers()` kỳ vọng response dạng `{data, total, page, limit}` nhưng API thật trả **mảng thẳng**. Fix: `listUsers()` trả `User[]` trực tiếp, bỏ hẳn type `PaginatedUsers`; phân trang UI đổi sang heuristic `hasMore` (mảng đủ `limit` phần tử ⇒ có thể còn trang sau), vì backend không trả `total`.
+- ⚠️ BUG BẢO MẬT (đã fix, ở backend): `GET /users` từng trả cả field `passwordHash` (bcrypt hash) cho FE. Fix trong `UsersService`: thêm hàm `toSafeUser()` loại `passwordHash` khỏi **mọi** response trả client (`findAll`, `findOne`, `create`, `update`), và khỏi dữ liệu ghi vào `AuditLog`. Verify lại qua `test-flow03-users.js` — response không còn field này.
 
 ---
 

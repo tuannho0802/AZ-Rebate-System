@@ -15,6 +15,11 @@ export interface RequestActor {
     type: 'ADMIN' | 'USER';
 }
 
+// Shape User trả về cho client — KHÔNG bao giờ chứa passwordHash.
+// [SUA — bao mat]: phat hien qua test that GET /users tra ca passwordHash
+// (bcrypt hash) cho FE, khong co ly do gi FE can field nay. Xem toSafeUser().
+export type SafeUser = Omit<User, 'passwordHash'>;
+
 // Whitelist field được phép sort — tránh nhận field tuỳ ý từ query string
 // rồi đưa thẳng vào Prisma orderBy (đã note ở review Pagination trước đó).
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'fullName', 'role', 'isActive'];
@@ -32,6 +37,14 @@ export class UsersService {
 
     private resolveSort(sort?: string): string {
         return sort && ALLOWED_SORT_FIELDS.includes(sort) ? sort : 'createdAt';
+    }
+
+    // [SUA — bao mat] Loai passwordHash truoc khi tra ve client, o DUNG 1 cho
+    // duy nhat de moi nhanh (findAll/findOne/create/update) deu di qua day,
+    // tranh sot 1 nhanh nao do.
+    private toSafeUser(user: User): SafeUser {
+        const { passwordHash, ...safe } = user;
+        return safe;
     }
 
     /**
@@ -65,19 +78,20 @@ export class UsersService {
      * mà không phải tự lọc client-side từ 1 trang giới hạn (an toàn hơn khi
      * subtree có nhiều hơn `limit` user).
      */
-    async findAll(pagination: PaginationDto, actor: RequestActor, parentId?: string): Promise<User[]> {
+    async findAll(pagination: PaginationDto, actor: RequestActor, parentId?: string): Promise<SafeUser[]> {
         const { page = 1, limit = 20, sort } = pagination;
         const take = Math.min(limit, 100);
         const skip = (page - 1) * take;
         const orderField = this.resolveSort(sort);
 
         if (this.isAdmin(actor)) {
-            return this.prisma.user.findMany({
+            const result = await this.prisma.user.findMany({
                 where: parentId ? { parentId } : undefined,
                 skip,
                 take,
                 orderBy: { [orderField]: 'desc' },
             });
+            return result.map((u) => this.toSafeUser(u));
         }
 
         const actorRecord = await this.prisma.user.findUnique({
@@ -107,24 +121,25 @@ export class UsersService {
             where.parentId = parentId;
         }
 
-        return this.prisma.user.findMany({
+        const result = await this.prisma.user.findMany({
             where,
             skip,
             take,
             orderBy: { [orderField]: 'desc' },
         });
+        return result.map((u) => this.toSafeUser(u));
     }
 
     /**
      * GET /users/:id — UserViewGuard đã enforce quyền ở controller. Ở đây chỉ
      * cần load + 404 nếu không có.
      */
-    async findOne(id: string): Promise<User> {
+    async findOne(id: string): Promise<SafeUser> {
         const user = await this.prisma.user.findUnique({ where: { id } });
         if (!user) {
             throw new NotFoundException('User not found');
         }
-        return user;
+        return this.toSafeUser(user);
     }
 
     /**
@@ -133,7 +148,7 @@ export class UsersService {
      * - dto.parentId có giá trị => tạo IB: actor phải CHÍNH LÀ parentId đó (chỉ
      *   cha trực tiếp mới tạo được con). Admin vẫn tạo được cho bất kỳ ai.
      */
-    async create(dto: CreateChildUserDto, actor: RequestActor): Promise<User> {
+    async create(dto: CreateChildUserDto, actor: RequestActor): Promise<SafeUser> {
         const isRoot = !dto.parentId;
 
         if (isRoot) {
@@ -171,6 +186,9 @@ export class UsersService {
             },
         });
 
+        // [SUA — bao mat]: khong ghi passwordHash vao AuditLog (afterData) —
+        // dung ban da loai passwordHash, tranh luu hash vao bang audit (van
+        // co the truy vet CREATE_USER qua entityId, khong can hash o day).
         await this.auditLog.createLog({
             actorId: actor.id,
             actorType: actor.type,
@@ -178,18 +196,18 @@ export class UsersService {
             entityType: 'User',
             entityId: created.id,
             beforeData: null,
-            afterData: created,
+            afterData: this.toSafeUser(created),
         });
 
-        return created;
+        return this.toSafeUser(created);
     }
 
     /**
      * PATCH /users/:id — chỉ sửa fullName / isActive (no hard delete).
      * DirectParentGuard đã enforce quyền ở controller.
      */
-    async update(id: string, dto: UpdateUserDto, actor: RequestActor): Promise<User> {
-        const before = await this.findOne(id); // ném 404 nếu không tồn tại
+    async update(id: string, dto: UpdateUserDto, actor: RequestActor): Promise<SafeUser> {
+        const before = await this.findOne(id); // ném 404 nếu không tồn tại — findOne đã safe (không passwordHash)
 
         const updated = await this.prisma.user.update({
             where: { id },
@@ -199,6 +217,8 @@ export class UsersService {
             },
         });
 
+        const safeUpdated = this.toSafeUser(updated);
+
         await this.auditLog.createLog({
             actorId: actor.id,
             actorType: actor.type,
@@ -206,10 +226,10 @@ export class UsersService {
             entityType: 'User',
             entityId: id,
             beforeData: before,
-            afterData: updated,
+            afterData: safeUpdated,
         });
 
-        return updated;
+        return safeUpdated;
     }
 
     /**
