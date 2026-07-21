@@ -361,11 +361,13 @@ export class AdminService {
       throw new BadRequestException('IB must have a parent');
     }
 
+    let level = 0;
     if (dto.parentId) {
       const parent = await this.prisma.user.findUnique({ where: { id: dto.parentId } });
       if (!parent) {
         throw new NotFoundException('Parent not found');
       }
+      level = parent.level + 1;
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -378,6 +380,7 @@ export class AdminService {
         role: dto.role,
         parentId: dto.parentId,
         createdByAdminId: adminId,
+        level,
       },
     });
   }

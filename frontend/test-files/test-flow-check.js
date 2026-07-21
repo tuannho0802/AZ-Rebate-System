@@ -236,20 +236,26 @@ async function main() {
             body: {
                 name: templateName,
                 description: 'Auto-created by test-flow-check.js',
+                level: 0,
                 items: [{ assetId: templateAsset?.id, rebateUnit: 2, markupPips: 2 }],
             },
         },
         201
     );
     const template = createTemplateRes.body;
+    let lowTemplate;
+    let highTemplate;
+    let adminHighTemplate;
 
-    await check(
+    const templatesRes = await check(
         '[GAP đã sửa] Non-admin (IB) GET /admin/templates -> phải MỞ (200)',
         'GET',
         '/admin/templates',
         { token: lv1aToken },
         200
     );
+    const hasLevelField = templatesRes.body && templatesRes.body.length > 0 && ('level' in templatesRes.body[0]);
+    record('  -> Template level bị ẩn khỏi non-admin', !hasLevelField, `hasLevel = ${hasLevelField}`);
 
     // ===== 2. USERS — hierarchy, pagination, subtree permission =====
     section('2. USERS — hierarchy, pagination, subtree permission');
@@ -347,18 +353,26 @@ async function main() {
         );
 
         await check(
-            'MIB set config cho con trực tiếp (lv1-a) VƯỢT TRẦN (12 > 10) -> phải 400',
+            'MIB set config cho con trực tiếp (lv1-a) truyền riêng lẻ rebate/markup -> phải 403 (không cho phép)',
             'POST',
             '/commission-configs',
-            { token: mibToken, body: { userId: lv1a.id, assetId: asset.id, rebateUnit: 12, markupPips: 5 } },
+            { token: mibToken, body: { userId: lv1a.id, assetId: asset.id, rebateUnit: 5, markupPips: 5 } },
+            403
+        );
+
+        await check(
+            'MIB set config cho con trực tiếp (lv1-a) VƯỢT TRẦN (25 > 20) -> phải 400',
+            'POST',
+            '/commission-configs',
+            { token: mibToken, body: { userId: lv1a.id, assetId: asset.id, transferUnit: 25 } },
             400
         );
 
         const mibSetLv1aRes = await check(
-            'MIB set config cho con trực tiếp (lv1-a) TRONG TRẦN (5 <= 10) -> 200/201',
+            'MIB set config cho con trực tiếp (lv1-a) TRONG TRẦN (10 <= 20) -> 200/201',
             'POST',
             '/commission-configs',
-            { token: mibToken, body: { userId: lv1a.id, assetId: asset.id, rebateUnit: 5, markupPips: 5 } },
+            { token: mibToken, body: { userId: lv1a.id, assetId: asset.id, transferUnit: 10 } },
             [200, 201]
         );
 
@@ -366,7 +380,7 @@ async function main() {
             'MIB set config cho CHÁU (lv2-a, không phải con trực tiếp) -> phải 403',
             'POST',
             '/commission-configs',
-            { token: mibToken, body: { userId: lv2a.id, assetId: asset.id, rebateUnit: 1, markupPips: 1 } },
+            { token: mibToken, body: { userId: lv2a.id, assetId: asset.id, transferUnit: 2 } },
             403
         );
 
@@ -374,7 +388,7 @@ async function main() {
             '[Orphan-config] lv1-b set config cho con TRỰC TIẾP THẬT (lv2-c) khi CHÍNH lv1-b chưa có config asset này -> phải 400',
             'POST',
             '/commission-configs',
-            { token: lv1bToken, body: { userId: lv2c.id, assetId: asset.id, rebateUnit: 1, markupPips: 1 } },
+            { token: lv1bToken, body: { userId: lv2c.id, assetId: asset.id, transferUnit: 2 } },
             400
         );
 
@@ -394,22 +408,18 @@ async function main() {
                 'MIB PATCH config lv1-a với version SAI (cũ - 999) -> phải 409',
                 'PATCH',
                 `/commission-configs/${lv1a.id}/${asset.id}`,
-                { token: mibToken, body: { rebateUnit: 4, version: 999 } },
+                { token: mibToken, body: { transferUnit: 8, version: 999 } },
                 409
             );
             await check(
                 'MIB PATCH config lv1-a với version ĐÚNG -> 200',
                 'PATCH',
                 `/commission-configs/${lv1a.id}/${asset.id}`,
-                { token: mibToken, body: { rebateUnit: 4, version: lv1aVersion } },
+                { token: mibToken, body: { transferUnit: 8, version: lv1aVersion } },
                 200
             );
         }
 
-        // [MOI] Tran-duoi (assertNoChildExceeds): cha (ke ca root, ke ca Admin ghi
-        // de) KHONG duoc ha gia tri xuong duoi muc con truc tiep dang giu. Day la
-        // regression test cho bug that: MIB tung bi ha xuong (0,0) trong khi lv1-a
-        // van dang giu rebate=4 (sau PATCH version o tren) -> gay am ledger luc Lock.
         const mibSelfCfg = await check(
             'Admin xem self+children cua MIB de lay version hien tai (chuan bi test tran-duoi)',
             'GET',
@@ -422,40 +432,26 @@ async function main() {
 
         if (typeof mibVersion === 'number') {
             await check(
-                '[Tran-duoi] Admin PATCH MIB (root) ha rebateUnit XUONG DUOI muc con lv1-a hien tai (2 < 4) -> phai 400',
+                '[Tran-duoi / Auto-clamp] Admin PATCH MIB (root) ha rebateUnit xuong duoi muc con (2 < 8) -> phai cho phep (200) va tu dong ha con',
                 'PATCH',
                 `/commission-configs/${mib.id}/${asset.id}`,
-                { token: adminToken, body: { rebateUnit: 2, version: mibVersion } },
-                400
+                { token: adminToken, body: { rebateUnit: 2, markupPips: 10, version: mibVersion } },
+                200
             );
 
-            const mibAfterFailRes = await check(
-                '  -> GET lai self MIB sau PATCH bi tu choi',
+            const mibAfterRes = await check(
+                '  -> GET lai self+children MIB de verify con tu dong ha',
                 'GET',
                 `/commission-configs/children/${mib.id}?assetId=${asset.id}`,
                 { token: adminToken },
                 200
             );
+            const lv1aAfter = mibAfterRes.body?.children?.find((c) => c.userId === lv1a.id);
+            const lv1aRebate = lv1aAfter ? Number(lv1aAfter.rebateUnit) : null;
             record(
-                '  -> version MIB KHONG doi sau lan PATCH bi 400 (assertCanWrite chan truoc khi ghi DB)',
-                mibAfterFailRes.body?.self?.version === mibVersion,
-                `version = ${mibAfterFailRes.body?.self?.version} (ky vong giu nguyen ${mibVersion})`
-            );
-
-            await check(
-                '[Tran-duoi] Admin PATCH MIB ha markupPips XUONG DUOI muc con lv1-a hien tai (3 < 5) -> phai 400',
-                'PATCH',
-                `/commission-configs/${mib.id}/${asset.id}`,
-                { token: adminToken, body: { markupPips: 3, version: mibVersion } },
-                400
-            );
-
-            await check(
-                '[Tran-duoi] Admin PATCH MIB xuong DUNG BANG muc con (rebateUnit = 4, bang max cua lv1-a) -> phai cho phep (200)',
-                'PATCH',
-                `/commission-configs/${mib.id}/${asset.id}`,
-                { token: adminToken, body: { rebateUnit: 4, version: mibVersion } },
-                200
+                '  -> rebateUnit cua lv1-a tu dong bi ha xuong bang rebateUnit cua MIB (2)',
+                lv1aRebate === 2,
+                `lv1-a rebateUnit = ${lv1aRebate} (ky vong 2)`
             );
         } else {
             record('SKIP test tran-duoi cho MIB', false, 'Khong lay duoc version cua MIB tu response children');
@@ -474,7 +470,56 @@ async function main() {
 
         // ===== 4. TEMPLATE APPLY =====
         section('4. TEMPLATE APPLY');
-        if (template?.id) {
+        if (template?.id && asset?.id) {
+            // Tạo thêm các template test cap-check
+            const highTemplateRes = await check(
+                'Admin tạo High Template (level 1, vượt cap MIB)',
+                'POST',
+                '/admin/templates',
+                {
+                    token: adminToken,
+                    body: {
+                        name: `High Template ${RUN_ID}`,
+                        level: 1,
+                        items: [{ assetId: asset.id, rebateUnit: 20, markupPips: 20 }],
+                    },
+                },
+                201
+            );
+            highTemplate = highTemplateRes.body;
+
+            const lowTemplateRes = await check(
+                'Admin tạo Low Template (level 1, trong cap MIB)',
+                'POST',
+                '/admin/templates',
+                {
+                    token: adminToken,
+                    body: {
+                        name: `Low Template ${RUN_ID}`,
+                        level: 1,
+                        items: [{ assetId: asset.id, rebateUnit: 5, markupPips: 5 }],
+                    },
+                },
+                201
+            );
+            lowTemplate = lowTemplateRes.body;
+
+            const adminHighTemplateRes = await check(
+                'Admin tạo Admin High Template (level 0, vượt cap Admin nếu check)',
+                'POST',
+                '/admin/templates',
+                {
+                    token: adminToken,
+                    body: {
+                        name: `Admin High Template ${RUN_ID}`,
+                        level: 0,
+                        items: [{ assetId: asset.id, rebateUnit: 30, markupPips: 30 }],
+                    },
+                },
+                201
+            );
+            adminHighTemplate = adminHighTemplateRes.body;
+
             await check(
                 'MIB tự áp Template cho CHÍNH MÌNH (root) -> phải 403 (chỉ Admin set được root)',
                 'POST',
@@ -503,8 +548,134 @@ async function main() {
                 { token: mibToken },
                 403
             );
+
+            // Bổ sung các case cap-check khi áp template
+            await check(
+                'MIB áp High Template (vượt cap) cho con trực tiếp (lv1-b) -> phải 400',
+                'POST',
+                `/templates/${highTemplate.id}/apply/${lv1b.id}`,
+                { token: mibToken },
+                400
+            );
+
+            await check(
+                'MIB áp Low Template (trong cap) cho con trực tiếp (lv1-b) -> 201',
+                'POST',
+                `/templates/${lowTemplate.id}/apply/${lv1b.id}`,
+                { token: mibToken },
+                201
+            );
+
+            await check(
+                'Admin áp Admin High Template (vượt cap) cho MIB -> 201 (Admin bypass cap-check)',
+                'POST',
+                `/templates/${adminHighTemplate.id}/apply/${mib.id}`,
+                { token: adminToken },
+                201
+            );
         } else {
             record('SKIP mục 4', false, 'Template không tạo được ở bước 1');
+        }
+
+        // ===== 7. TEMPLATE LOCK =====
+        section('7. TEMPLATE LOCK');
+        if (template?.id && lowTemplate?.id) {
+            // MIB lock template (level 1) cho con trực tiếp (lv1-b, level 1)
+            // Dùng lowTemplate (level 1) thay vì template (level 0) vì lv1b.level = 1
+            await check(
+                'MIB lock template cho con trực tiếp -> 201/200',
+                'POST',
+                `/templates/${lowTemplate.id}/lock/${lv1b.id}`,
+                { token: mibToken },
+                [200, 201]
+            );
+
+            await check(
+                'Gọi lock lần 2 (đã lock rồi) -> vẫn 200/201 (idempotent)',
+                'POST',
+                `/templates/${lowTemplate.id}/lock/${lv1b.id}`,
+                { token: mibToken },
+                [200, 201]
+            );
+
+            await check(
+                'MIB lock template cho user KHÔNG phải con trực tiếp (cháu lv2-a) -> phải 403',
+                'POST',
+                `/templates/${template.id}/lock/${lv2a.id}`,
+                { token: mibToken },
+                403
+            );
+
+            await check(
+                'IB thường (không phải cha của target) cố lock template cho ai đó -> phải 403',
+                'POST',
+                `/templates/${template.id}/lock/${lv1b.id}`,
+                { token: lv1aToken },
+                403
+            );
+
+            await check(
+                'Lock template có level không khớp level của user target -> phải 400',
+                'POST',
+                `/templates/${lowTemplate.id}/lock/${mib.id}`, // lowTemplate.level = 1, mib.level = 0
+                { token: adminToken },
+                400
+            );
+
+            // Kiểm tra GET /templates/visible bằng token của user bị lock (lv1-b)
+            const visibleBeforeUnlock = await check(
+                'Sau khi lock: gọi GET /templates/visible bằng token của user bị lock -> template đó KHÔNG xuất hiện',
+                'GET',
+                '/templates/visible',
+                { token: lv1bToken },
+                200
+            );
+            const isTemplateLocked = !visibleBeforeUnlock.body?.some((t) => t.id === lowTemplate.id);
+            record('  -> template bị lock biến mất khỏi danh sách', isTemplateLocked, `lockedIds = ${JSON.stringify(visibleBeforeUnlock.body?.map((t) => t.id))}`);
+
+            // MIB unlock template cho con trực tiếp
+            await check(
+                'MIB unlock template cho con trực tiếp -> 200',
+                'POST',
+                `/templates/${lowTemplate.id}/unlock/${lv1b.id}`,
+                { token: mibToken },
+                [200, 201]
+            );
+
+            // Kiểm tra GET /templates/visible bằng token của user được unlock (lv1-b)
+            const visibleAfterUnlock = await check(
+                'unlock xong -> template xuất hiện lại trong GET /templates/visible',
+                'GET',
+                '/templates/visible',
+                { token: lv1bToken },
+                200
+            );
+            const isTemplateUnlocked = visibleAfterUnlock.body?.some((t) => t.id === lowTemplate.id);
+            record('  -> template xuất hiện trở lại', isTemplateUnlocked, `visibleIds = ${JSON.stringify(visibleAfterUnlock.body?.map((t) => t.id))}`);
+
+            // Admin gọi GET /templates/visible -> thấy tất cả, kể cả field level
+            const adminVisible = await check(
+                'Admin gọi GET /templates/visible -> thấy tất cả, kể cả field level',
+                'GET',
+                '/templates/visible',
+                { token: adminToken },
+                200
+            );
+            const hasLevelAdmin = adminVisible.body?.length > 0 && adminVisible.body.every((t) => typeof t.level === 'number');
+            record('  -> admin thấy field level', hasLevelAdmin, `sample.level = ${adminVisible.body?.[0]?.level}`);
+
+            // Non-admin gọi GET /templates/visible -> response KHÔNG có field level
+            const userVisible = await check(
+                'Non-admin gọi GET /templates/visible -> response KHÔNG có field level',
+                'GET',
+                '/templates/visible',
+                { token: lv1bToken },
+                200
+            );
+            const hasNoLevelUser = userVisible.body?.length > 0 && userVisible.body.every((t) => t.level === undefined);
+            record('  -> non-admin không thấy field level', hasNoLevelUser, `sample.level = ${userVisible.body?.[0]?.level}`);
+        } else {
+            record('SKIP mục 7', false, 'Template không tạo được ở bước 1');
         }
 
         // ===== 5. PAYOUT SESSION + LEDGER — state machine =====

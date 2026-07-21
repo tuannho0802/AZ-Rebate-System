@@ -150,6 +150,7 @@ export class UsersService {
      */
     async create(dto: CreateChildUserDto, actor: RequestActor): Promise<SafeUser> {
         const isRoot = !dto.parentId;
+        let level = 0;
 
         if (isRoot) {
             if (!this.isAdmin(actor)) {
@@ -171,6 +172,7 @@ export class UsersService {
                     throw new ForbiddenException('You can only create a user directly under yourself');
                 }
             }
+            level = parent.level + 1;
         }
 
         const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -183,6 +185,7 @@ export class UsersService {
                 role: dto.role,
                 parentId: dto.parentId ?? null,
                 createdByAdminId: this.isAdmin(actor) ? actor.id : null,
+                level,
             },
         });
 
