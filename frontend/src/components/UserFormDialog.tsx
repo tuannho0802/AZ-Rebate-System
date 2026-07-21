@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CreateUserDto } from '../lib/api/admin';
+import { CreateUserDto } from '../lib/api/user';
 import { Dialog, FormError } from './ui/Dialog';
 import { Button, Field, Input, Select } from './ui/primitives';
 

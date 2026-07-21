@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/auth-context';
-import { Asset, User, listAssets, listUsers } from '../../../lib/api/admin';
+import { Asset, listAssets } from '../../../lib/api/admin';
+import { User, listUsers } from '../../../lib/api/user';
 import {
     Template,
     TemplateItem,
@@ -12,7 +13,7 @@ import {
     createTemplate,
     updateTemplate,
     deleteTemplate,
-    applyTemplateAsAdmin,
+    applyTemplate,
 } from '../../../lib/api/template';
 import TemplateTable from '../../../components/TemplateTable';
 import TemplateFormDialog from '../../../components/TemplateFormDialog';
@@ -125,7 +126,7 @@ export default function AdminTemplatesPage() {
         }
         setApplying(true);
         try {
-            const applied = await applyTemplateAsAdmin(applyForm.templateId, applyForm.userId);
+            const applied = await applyTemplate(applyForm.templateId, applyForm.userId);
             alert(`Áp dụng Template thành công cho ${applied.length} asset!`);
             setApplyForm({ templateId: '', userId: '' });
         } catch (error: any) {

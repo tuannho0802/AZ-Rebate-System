@@ -23,12 +23,14 @@ interface TemplateFormDialogProps {
 export default function TemplateFormDialog({ open, onClose, assets, onSave, isLoading }: TemplateFormDialogProps) {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
+    const [level, setLevel] = useState(0);
     const [items, setItems] = useState<DraftItem[]>([{ assetId: '', rebateUnit: 0, markupPips: 0 }]);
     const [error, setError] = useState<string | null>(null);
 
     const resetForm = () => {
         setName('');
         setDescription('');
+        setLevel(0);
         setItems([{ assetId: '', rebateUnit: 0, markupPips: 0 }]);
     };
 
@@ -55,6 +57,7 @@ export default function TemplateFormDialog({ open, onClose, assets, onSave, isLo
         const dto: CreateTemplateDto = {
             name: name.trim(),
             description: description.trim() || undefined,
+            level,
             items: validItems,
         };
 
@@ -86,12 +89,15 @@ export default function TemplateFormDialog({ open, onClose, assets, onSave, isLo
             }
         >
             <form id="template-form" onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4">
+                <div className="grid sm:grid-cols-3 gap-4">
                     <Field label="Tên template" required>
                         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="VD: Gói Standard" disabled={isLoading} />
                     </Field>
                     <Field label="Mô tả">
                         <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Tuỳ chọn" disabled={isLoading} />
+                    </Field>
+                    <Field label="Level" required hint="0 = MIB→Lv1, 1 = Lv1→Lv2, ...">
+                        <Input type="number" min={0} value={level} onChange={(e) => setLevel(parseInt(e.target.value) || 0)} disabled={isLoading} />
                     </Field>
                 </div>
 

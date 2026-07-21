@@ -3,47 +3,15 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
-import { api } from '../../lib/api-client';
-
-interface PayoutSession {
-  id: string;
-  name: string;
-  note?: string;
-  baseVolume: number;
-  status: 'DRAFT' | 'LOCKED' | 'COMPLETED';
-  sourceUserId: string;
-  assetId: string;
-  createdAt: string;
-}
-
-interface LedgerEntry {
-  id: string;
-  payoutSessionId: string;
-  beneficiaryId: string;
-  assetId: string;
-  netRebate: number;
-  netMarkup: number;
-  netTransferUnit: number;
-  calculatedValue: number;
-}
-
-// Helper: baseVolume / netRebate / netMarkup / netTransferUnit / calculatedValue are all
-// Prisma Decimal fields — backend always serializes them as STRING over JSON, even though
-// they display like plain numbers. Must cast with Number(...) before using .toLocaleString()
-// or any arithmetic, otherwise values render wrong or silently stay as strings.
-function normalizeSession(s: any): PayoutSession {
-  return { ...s, baseVolume: Number(s.baseVolume) };
-}
-
-function normalizeLedgerEntry(e: any): LedgerEntry {
-  return {
-    ...e,
-    netRebate: Number(e.netRebate),
-    netMarkup: Number(e.netMarkup),
-    netTransferUnit: Number(e.netTransferUnit),
-    calculatedValue: Number(e.calculatedValue),
-  };
-}
+import {
+  PayoutSession,
+  LedgerEntry,
+  listSessions,
+  createSession,
+  lockSession,
+  completeSession,
+  getSession,
+} from '../../lib/api/payout-session';
 
 export default function SessionsPage() {
   const { user, logout, isLoading } = useAuth();
@@ -74,17 +42,16 @@ export default function SessionsPage() {
   useEffect(() => {
     if (isLoading || !user || user.type !== 'admin') return;
     // Load sessions on mount
-    api
-      .get<any[]>('/payout-sessions')
-      .then((data) => setSessions((data ?? []).map(normalizeSession)))
+    listSessions()
+      .then((data) => setSessions(data))
       .catch(console.error);
   }, [isLoading, user]);
 
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const created = await api.post<any>('/payout-sessions', newSession);
-      setSessions([...sessions, normalizeSession(created)]);
+      const created = await createSession(newSession);
+      setSessions([...sessions, created]);
       setNewSession({ name: '', note: '', baseVolume: 0, sourceUserId: '', assetId: '' });
       alert('Payout session created successfully!');
     } catch (error: any) {
@@ -94,7 +61,7 @@ export default function SessionsPage() {
 
   const handleLock = async (id: string) => {
     try {
-      await api.post<void>(`/payout-sessions/${id}/lock`);
+      await lockSession(id);
       setSessions(sessions.map((s) => (s.id === id ? { ...s, status: 'LOCKED' } : s)));
       loadSessionDetails(id);
       alert('Session locked successfully!');
@@ -105,7 +72,7 @@ export default function SessionsPage() {
 
   const handleComplete = async (id: string) => {
     try {
-      await api.post<void>(`/payout-sessions/${id}/complete`);
+      await completeSession(id);
       setSessions(sessions.map((s) => (s.id === id ? { ...s, status: 'COMPLETED' } : s)));
       loadSessionDetails(id);
       alert('Session completed successfully!');
@@ -116,9 +83,9 @@ export default function SessionsPage() {
 
   const loadSessionDetails = async (id: string) => {
     try {
-      const session = await api.get<any & { ledgerEntries: any[] }>(`/payout-sessions/${id}`);
-      setSelectedSession(normalizeSession(session));
-      setLedgerEntries((session.ledgerEntries ?? []).map(normalizeLedgerEntry));
+      const sessionData = await getSession(id);
+      setSelectedSession(sessionData);
+      setLedgerEntries(sessionData.ledgerEntries);
     } catch (error: any) {
       alert(`Failed to load session details: ${error.message}`);
     }

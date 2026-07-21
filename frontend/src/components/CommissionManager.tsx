@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/auth-context';
-import { api } from '../lib/api-client';
 import {
   getConfigChildren,
   upsertConfig,
@@ -27,35 +26,9 @@ import {
   Td,
 } from './ui/primitives';
 import BulkAssetConfigDialog from './BulkAssetConfigDialog';
-
-interface UserRecord {
-  id: string;
-  email: string;
-  fullName?: string | null;
-  role: 'MIB' | 'IB';
-  isActive: boolean;
-  parentId?: string | null;
-  createdAt: string;
-}
-
-interface Asset {
-  id: string;
-  code: string;
-  name: string;
-}
-
-interface TemplateItem {
-  assetId: string;
-  rebateUnit: number | string;
-  markupPips: number | string;
-}
-
-interface Template {
-  id: string;
-  name: string;
-  description?: string;
-  items: TemplateItem[];
-}
+import { User, listUsers, createDirectChild, updateUser } from '../lib/api/user';
+import { Asset, listAssets } from '../lib/api/admin';
+import { Template, listTemplates, applyTemplate } from '../lib/api/template';
 
 /**
  * Dùng chung cho cả MIB và IB. Quy tắc vàng (đã enforce ở backend, component
@@ -67,7 +40,7 @@ interface Template {
  */
 export default function CommissionManager() {
   const { user } = useAuth();
-  const ownId = (user as any)?.sub as string | undefined;
+  const ownId = user?.sub;
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetsError, setAssetsError] = useState<string | null>(null);
@@ -76,16 +49,16 @@ export default function CommissionManager() {
   const [loadingLookups, setLoadingLookups] = useState(true);
 
   const [selectedAssetId, setSelectedAssetId] = useState('');
-  const [directChildren, setDirectChildren] = useState<UserRecord[]>([]);
+  const [directChildren, setDirectChildren] = useState<User[]>([]);
   const [selfInfo, setSelfInfo] = useState<CommissionConfigSelf | null>(null);
   const [childrenConfig, setChildrenConfig] = useState<Map<string, CommissionConfigChild>>(new Map());
   const [loadingChildren, setLoadingChildren] = useState(false);
 
   // ---- Dialog visibility state ----
   const [createChildOpen, setCreateChildOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<UserRecord | null>(null);
-  const [configDialogChild, setConfigDialogChild] = useState<UserRecord | null>(null);
-  const [bulkConfigChild, setBulkConfigChild] = useState<UserRecord | null>(null);
+  const [editingAccount, setEditingAccount] = useState<User | null>(null);
+  const [configDialogChild, setConfigDialogChild] = useState<User | null>(null);
+  const [bulkConfigChild, setBulkConfigChild] = useState<User | null>(null);
   const [applyTemplateOpen, setApplyTemplateOpen] = useState(false);
 
   // ---- Load Assets + Templates (created by Admin, reused here) ----
@@ -96,17 +69,15 @@ export default function CommissionManager() {
     const loadLookups = async () => {
       setLoadingLookups(true);
       try {
-        const res = await api.get<Asset[] | { data: Asset[] }>('/admin/assets');
-        const list = Array.isArray(res) ? res : res.data;
-        if (!cancelled) setAssets(list ?? []);
+        const res = await listAssets();
+        if (!cancelled) setAssets(res ?? []);
       } catch (error: any) {
         if (!cancelled) setAssetsError(error.message ?? 'Failed to load assets');
       }
 
       try {
-        const res = await api.get<Template[] | { data: Template[] }>('/admin/templates');
-        const list = Array.isArray(res) ? res : res.data;
-        if (!cancelled) setTemplates(list ?? []);
+        const res = await listTemplates();
+        if (!cancelled) setTemplates(res ?? []);
       } catch (error: any) {
         if (!cancelled) setTemplatesError(error.message ?? 'Failed to load templates');
       }
@@ -134,9 +105,8 @@ export default function CommissionManager() {
       // Backend lọc trực tiếp qua ?parentId= — không còn tự lọc client-side từ
       // 1 trang /users giới hạn (an toàn hơn khi subtree có >100 user, tránh
       // thiếu con trực tiếp âm thầm nếu chỉ lấy đúng 1 trang rồi filter tay).
-      const res = await api.get<UserRecord[] | { data: UserRecord[] }>(`/users?parentId=${ownId}&limit=100`);
-      const list = Array.isArray(res) ? res : res.data;
-      setDirectChildren(list ?? []);
+      const res = await listUsers({ parentId: ownId, limit: 100 });
+      setDirectChildren(res ?? []);
     } catch (error) {
       console.error('Failed to load direct children accounts:', error);
     }
@@ -177,11 +147,10 @@ export default function CommissionManager() {
   // ---- Account CRUD (direct children only) ----
   const handleCreateChild = async (dto: { email: string; password: string; fullName: string }) => {
     if (!ownId) return;
-    await api.post<UserRecord>('/users', {
+    await createDirectChild({
       email: dto.email,
       password: dto.password,
       fullName: dto.fullName || undefined,
-      role: 'IB', // Rule vàng: LvN chỉ tạo được LvN+1 = IB, không được tạo MIB (root) khác
       parentId: ownId,
     });
     setCreateChildOpen(false);
@@ -190,7 +159,7 @@ export default function CommissionManager() {
 
   const handleEditAccountSubmit = async (dto: { fullName: string; isActive: boolean }) => {
     if (!editingAccount) return;
-    await api.patch(`/users/${editingAccount.id}`, dto);
+    await updateUser(editingAccount.id, dto);
     setEditingAccount(null);
     refreshAll();
   };
@@ -222,7 +191,7 @@ export default function CommissionManager() {
   // trong 1 transaction ở backend (xem template-apply.service.ts), rollback
   // toàn bộ nếu 1 asset lỗi (vd vượt cap).
   const handleApplyTemplate = async (templateId: string, targetUserId: string) => {
-    const applied = await api.post<any[]>(`/templates/${templateId}/apply/${targetUserId}`, {});
+    const applied = await applyTemplate(templateId, targetUserId);
     setApplyTemplateOpen(false);
     if (selectedAssetId) loadChildrenConfig(selectedAssetId);
     return applied.length;
@@ -614,7 +583,7 @@ function ApplyTemplateDialog({
   onClose: () => void;
   templates: Template[];
   templatesError: string | null;
-  directChildren: UserRecord[];
+  directChildren: User[];
   onApply: (templateId: string, targetUserId: string) => Promise<number>;
 }) {
   const [templateId, setTemplateId] = useState('');

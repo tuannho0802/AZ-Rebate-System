@@ -3,21 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
-import { api } from '../../lib/api-client';
 import { PageShell, TopNav, PageBody, Card, Button, cx } from '../../components/ui/primitives';
-
-type AssetCategory = 'FOREX' | 'METAL' | 'ENERGY' | 'COMMODITY' | 'INDEX' | 'SHARES' | 'CRYPTO' | 'OTHER';
-
-interface Asset {
-  id: string;
-  code: string;
-  name: string;
-  category: AssetCategory;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-  templateItems?: unknown[];
-}
+import { Asset, listAssets } from '../../lib/api/admin';
 
 const TABS = [
   { key: 'users', label: 'Users', icon: '👥' },
@@ -66,7 +53,7 @@ export default function AdminPage() {
   }, [user, isLoading, router]);
 
   const fetchAssets = useCallback(() => {
-    return api.get<Asset[]>('/admin/assets').then(setAssets).catch(console.error);
+    return listAssets().then(setAssets).catch(console.error);
   }, []);
 
   useEffect(() => {

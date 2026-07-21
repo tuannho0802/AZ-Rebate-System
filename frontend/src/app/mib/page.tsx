@@ -3,26 +3,11 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/auth-context';
-import { api } from '../../lib/api-client';
 import CommissionManager from '../../components/CommissionManager';
 import { Asset, listAssets } from '../../lib/api/admin';
+import { User, SubtreeNode, listUsers, getSubtree } from '../../lib/api/user';
 import AssetTable from '../../components/AssetTable';
 import { PageShell, TopNav, PageBody, Card, ActiveBadge, RoleBadge, EmptyState, Loading } from '../../components/ui/primitives';
-
-interface User {
-  id: string;
-  email: string;
-  fullName?: string;
-  role: 'MIB' | 'IB';
-  isActive: boolean;
-  parentId?: string;
-  createdAt: string;
-}
-
-interface SubtreeNode {
-  id: string;
-  depth: number;
-}
 
 export default function MibPage() {
   const { user, logout } = useAuth();
@@ -46,7 +31,7 @@ export default function MibPage() {
 
   useEffect(() => {
     if (user?.sub) {
-      api.get<User[]>('/users').then(setUserList).catch(console.error);
+      listUsers().then(setUserList).catch(console.error);
     }
     listAssets().then(setAssets).catch(console.error);
   }, [user]);
@@ -55,7 +40,7 @@ export default function MibPage() {
     setLoadingSubtree(true);
     setSubtreeRoot(userId);
     try {
-      const nodes = await api.get<SubtreeNode[]>(`/users/${userId}/subtree`);
+      const nodes = await getSubtree(userId);
       setSubtree(nodes);
     } catch (error: any) {
       alert(`Failed to load subtree: ${error.message}`);

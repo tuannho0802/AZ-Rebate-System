@@ -1,6 +1,6 @@
 'use client';
 
-import { User } from '../lib/api/admin';
+import { User } from '../lib/api/user';
 import { ActiveBadge, Button, EmptyState, Loading, RoleBadge, Table, Th, Td } from './ui/primitives';
 
 interface UserTableProps {

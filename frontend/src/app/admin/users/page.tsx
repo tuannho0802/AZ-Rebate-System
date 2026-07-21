@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/auth-context';
-import { User, listUsers, createUser } from '../../../lib/api/admin';
+import { User, listUsers, createUser } from '../../../lib/api/user';
 import UserTable from '../../../components/UserTable';
 import UserFormDialog from '../../../components/UserFormDialog';
 import { PageShell, TopNav, PageBody, Card, Button, Field, Input } from '../../../components/ui/primitives';
