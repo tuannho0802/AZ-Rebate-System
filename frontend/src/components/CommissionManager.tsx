@@ -30,7 +30,7 @@ import BulkAssetConfigDialog from './BulkAssetConfigDialog';
 import ManageTemplateLockDialog from './ManageTemplateLockDialog';
 import { User, listUsers, createDirectChild, updateUser } from '../lib/api/user';
 import { Asset, listAssets } from '../lib/api/admin';
-import { Template, listTemplates, applyTemplate } from '../lib/api/template';
+import { Template, listTemplates, listVisibleTemplates, applyTemplate } from '../lib/api/template';
 
 /**
  * Dùng chung cho cả MIB và IB. Quy tắc vàng (đã enforce ở backend, component
@@ -79,7 +79,7 @@ export default function CommissionManager() {
       }
 
       try {
-        const res = await listTemplates();
+        const res = await listVisibleTemplates();
         if (!cancelled) setTemplates(res ?? []);
       } catch (error: any) {
         if (!cancelled) setTemplatesError(error.message ?? 'Failed to load templates');
@@ -649,11 +649,14 @@ function ApplyTemplateDialog({
         )}
         <Field label="Template" required>
           <SearchableSelect
-            options={templates.map((t) => ({
-              id: t.id,
-              label: t.name,
-              sublabel: `${t.items?.length ?? 0} asset`,
-            }))}
+            options={[...templates]
+              .sort((a, b) => (a.level ?? 0) - (b.level ?? 0))
+              .map((t) => ({
+                id: t.id,
+                label: t.name,
+                sublabel: `${t.items?.length ?? 0} asset`,
+                ...(t.level !== undefined && t.level !== null ? { tag: `Cấp ${t.level}` } : {}),
+              }))}
             value={templateId}
             onChange={setTemplateId}
             placeholder="Chọn Template..."

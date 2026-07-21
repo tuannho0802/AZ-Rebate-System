@@ -77,3 +77,17 @@ export async function unlockTemplate(templateId: string, userId: string): Promis
 export async function listVisibleTemplates(): Promise<Template[]> {
   return api.get<Template[]>('/templates/visible');
 }
+
+// Trạng thái lock của từng template cho 1 user cụ thể
+export interface TemplateLockStatus {
+  id: string;
+  name: string;
+  description?: string;
+  level: number;
+  isLocked: boolean;
+}
+
+// Lấy trạng thái lock tất cả template (cùng level) cho 1 user con trực tiếp
+export async function getTemplateLockStatus(userId: string): Promise<TemplateLockStatus[]> {
+  return api.get<TemplateLockStatus[]>(`/templates/locks/${userId}`);
+}
