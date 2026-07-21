@@ -13,7 +13,13 @@ export interface TreeSubtreeNode {
 
 /**
  * Builds a hierarchical tree from a flat list of SubtreeNodes ({ id, depth })
- * using the depth and parent-child relationships inferred from the flat ordering.
+ * using `parentId` from User objects to determine parent-child relationships.
+ *
+ * IMPORTANT: Backend `getSubtree()` returns nodes ordered by `depth ASC`
+ * (level-order / BFS), NOT DFS pre-order. Nodes at the same depth from
+ * different branches are interleaved. Therefore we CANNOT rely on array
+ * ordering to infer parent-child relationships — we MUST use `parentId`
+ * from the User data.
  */
 export function buildSubtreeHierarchy(
   flatNodes: SubtreeNode[],
@@ -21,34 +27,50 @@ export function buildSubtreeHierarchy(
 ): TreeSubtreeNode | null {
   if (flatNodes.length === 0) return null;
 
-  const rootFlatNode = flatNodes[0];
-  const rootNode: TreeSubtreeNode = {
-    id: rootFlatNode.id,
-    depth: rootFlatNode.depth,
-    user: userMap.get(rootFlatNode.id),
-    children: [],
-  };
+  const rootId = flatNodes[0].id;
 
-  const stack: TreeSubtreeNode[] = [rootNode];
-
-  for (let i = 1; i < flatNodes.length; i++) {
-    const flatNode = flatNodes[i];
-    const node: TreeSubtreeNode = {
+  // 1. Build all TreeSubtreeNode objects keyed by id
+  const nodeMap = new Map<string, TreeSubtreeNode>();
+  for (const flatNode of flatNodes) {
+    nodeMap.set(flatNode.id, {
       id: flatNode.id,
       depth: flatNode.depth,
       user: userMap.get(flatNode.id),
       children: [],
-    };
+    });
+  }
 
-    // Pop nodes from stack that are at the same depth or deeper than the current node
-    while (stack.length > 0 && stack[stack.length - 1].depth >= node.depth) {
-      stack.pop();
-    }
+  // 2. Wire parent → child using parentId from User data
+  //    Orphan nodes (parentId unknown or not in subtree) are attached to root.
+  const orphans: TreeSubtreeNode[] = [];
 
-    if (stack.length > 0) {
-      stack[stack.length - 1].children.push(node);
+  for (const flatNode of flatNodes) {
+    if (flatNode.id === rootId) continue; // root has no parent in this subtree
+
+    const userInfo = userMap.get(flatNode.id);
+    const parentId = userInfo?.parentId;
+    const treeNode = nodeMap.get(flatNode.id)!;
+
+    if (parentId && nodeMap.has(parentId)) {
+      // Normal case: parent is in the subtree, wire correctly
+      nodeMap.get(parentId)!.children.push(treeNode);
+    } else {
+      // Orphan: parentId unknown (user not in userMap) or parent not in subtree
+      // Attach to root as fallback so they're still visible
+      orphans.push(treeNode);
+      if (!userInfo) {
+        console.warn(
+          `[SubtreeTree] Node ${flatNode.id} (depth ${flatNode.depth}) not found in userMap — cannot determine parentId. Attached to root as orphan.`,
+        );
+      }
     }
-    stack.push(node);
+  }
+
+  const rootNode = nodeMap.get(rootId)!;
+
+  // Append orphans at the end of root's children so they're visible
+  if (orphans.length > 0) {
+    rootNode.children.push(...orphans);
   }
 
   return rootNode;
@@ -70,7 +92,6 @@ function SubtreeTreeNode({
   currentActorId?: string;
 }) {
   const hasChildren = node.children.length > 0;
-  // Automatically expand if node.depth < defaultExpandedDepth
   const [isExpanded, setIsExpanded] = useState(
     node.depth < defaultExpandedDepth,
   );
@@ -78,11 +99,12 @@ function SubtreeTreeNode({
   const userInfo = node.user;
   const isRootActor = node.depth === 0;
 
+  // TUYỆT ĐỐI không hiện ID thô (kể cả rút gọn) — Phase 3 rule
   const displayName = userInfo
     ? userInfo.fullName
       ? `${userInfo.fullName} (${userInfo.email})`
       : userInfo.email
-    : `User (${node.id.slice(0, 8)}...)`;
+    : 'Người dùng không xác định';
 
   return (
     <div className="select-none">
@@ -113,8 +135,7 @@ function SubtreeTreeNode({
         <span
           className={`text-sm font-medium ${
             isRootActor ? 'text-indigo-950 font-semibold' : 'text-slate-800'
-          }`}
-          title={node.id}
+          } ${!userInfo ? 'italic text-slate-400' : ''}`}
         >
           {displayName}
         </span>
