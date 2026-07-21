@@ -181,6 +181,7 @@ export class AdminService {
       data: {
         name: dto.name,
         description: dto.description,
+        level: dto.level,
         createdByAdminId: adminId,
         items: {
           create: [...dto.items, ...missingItems],
@@ -192,17 +193,55 @@ export class AdminService {
     });
   }
 
-  async listTemplates() {
-    return this.prisma.template.findMany({
-      include: {
-        items: {
-          include: {
-            asset: true,
+  async listTemplates(actor: any) {
+    const isAdmin = actor?.type === 'ADMIN';
+
+    if (isAdmin) {
+      return this.prisma.template.findMany({
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          level: true,
+          createdAt: true,
+          updatedAt: true,
+          createdByAdminId: true,
+          items: {
+            select: {
+              id: true,
+              templateId: true,
+              assetId: true,
+              rebateUnit: true,
+              markupPips: true,
+              asset: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+      });
+    } else {
+      return this.prisma.template.findMany({
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          createdAt: true,
+          updatedAt: true,
+          createdByAdminId: true,
+          items: {
+            select: {
+              id: true,
+              templateId: true,
+              assetId: true,
+              rebateUnit: true,
+              markupPips: true,
+              asset: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
   }
 
   async updateTemplate(id: string, dto: UpdateTemplateDto) {

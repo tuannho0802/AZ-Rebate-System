@@ -30,6 +30,11 @@ export class CreateTemplateDto {
   @IsOptional()
   description?: string;
 
+  @ApiProperty({ example: 0, description: 'Level áp dụng cho template (0 = MIB, 1 = Lv1 IB...)' })
+  @IsNumber()
+  @IsNotEmpty()
+  level: number;
+
   @ApiProperty({ type: [TemplateItemDto], description: 'Danh sách mục template' })
   @IsArray()
   @ValidateNested({ each: true })

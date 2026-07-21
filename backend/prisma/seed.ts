@@ -256,6 +256,7 @@ async function main() {
     create: {
       name: 'Standard Template',
       description: 'Template mặc định — rebate/markup cơ bản cho các asset chính, còn lại = 0',
+      level: 0,
       createdByAdminId: admin.id,
     },
   });
@@ -266,6 +267,7 @@ async function main() {
     create: {
       name: 'Premium Template',
       description: 'Template cao cấp — rebate/markup cao hơn cho asset chính, còn lại = 0',
+      level: 0,
       createdByAdminId: admin.id,
     },
   });

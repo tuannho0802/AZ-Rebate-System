@@ -89,6 +89,7 @@ export class TemplateApplyService {
             },
             actor,
             tx,
+            true,
           );
           results.push(applied);
         } catch (err) {

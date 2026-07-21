@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID, IsNumber, Min } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUUID, IsNumber, Min, IsOptional } from 'class-validator';
 
 export class UpsertConfigDto {
   @ApiProperty({ example: 'user-uuid', description: 'ID user' })
@@ -10,13 +10,21 @@ export class UpsertConfigDto {
   @IsUUID()
   assetId: string;
 
-  @ApiProperty({ example: 10, description: 'Rebate unit (số tiền hoa hồng)' })
+  @ApiPropertyOptional({ example: 10, description: 'Rebate unit (số tiền hoa hồng)' })
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  rebateUnit: number;
+  rebateUnit?: number;
 
-  @ApiProperty({ example: 5, description: 'Markup pips (phần chênh lệch)' })
+  @ApiPropertyOptional({ example: 5, description: 'Markup pips (phần chênh lệch)' })
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  markupPips: number;
+  markupPips?: number;
+
+  @ApiPropertyOptional({ example: 15, description: 'Tổng hoa hồng (Rebate + Markup)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  transferUnit?: number;
 }

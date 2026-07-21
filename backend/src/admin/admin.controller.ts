@@ -89,8 +89,8 @@ export class AdminController {
   @ApiOperation({ summary: 'List templates', description: 'Lấy danh sách tất cả template (MIB/IB/Admin đều xem được)' })
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Danh sách template' })
-  listTemplates() {
-    return this.adminService.listTemplates();
+  listTemplates(@CurrentUser() user: any) {
+    return this.adminService.listTemplates(user);
   }
 
   @Patch('templates/:id')

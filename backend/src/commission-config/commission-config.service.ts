@@ -71,156 +71,195 @@ export class CommissionConfigService {
     };
   }
 
-  /**
-   * [MOI] Dam bao bat bien "con <= cha" luon dung o MOI thoi diem, khong chi
-   * luc set con. Neu da co con truc tiep dang giu gia tri X cho asset nay,
-   * KHONG duoc ha gia tri cua chinh minh xuong duoi X — bat ke actor la
-   * Admin hay chinh cha do, va bat ke la root (MIB) hay khong. MIB khong co
-   * cha de gioi han tren, nhung van bi gioi han duoi boi chinh con cua no.
-   */
-  private async assertNoChildExceeds(
-    userId: string,
-    assetId: string,
-    rebateUnit: number,
-    markupPips: number,
-    client: DbClient,
-  ): Promise<void> {
-    const childConfigs = await client.userCommissionConfig.findMany({
-      where: { assetId, user: { parentId: userId } },
-    });
-
-    if (childConfigs.length === 0) return;
-
-    const maxChildRebate = Math.max(...childConfigs.map((c) => Number(c.rebateUnit)));
-    const maxChildMarkup = Math.max(...childConfigs.map((c) => Number(c.markupPips)));
-
-    if (rebateUnit < maxChildRebate) {
-      throw new BadRequestException(
-        `Không thể hạ rebateUnit xuống ${rebateUnit}: đã có con trực tiếp đang được cấp ${maxChildRebate} cho asset này. Hạ cấp con đó trước.`,
-      );
-    }
-    if (markupPips < maxChildMarkup) {
-      throw new BadRequestException(
-        `Không thể hạ markupPips xuống ${markupPips}: đã có con trực tiếp đang được cấp ${maxChildMarkup} cho asset này. Hạ cấp con đó trước.`,
-      );
-    }
+  /** Tách total thành (rebate, markup) theo rule "ăn rebate của cha trước". */
+  private splitByPriority(
+    total: number,
+    parentRebate: number,
+    parentMarkup: number,
+  ): { rebateUnit: number; markupPips: number } {
+    const rebateUnit = Math.min(parentRebate, total);
+    const markupPips = total - rebateUnit; // đảm bảo <= parentMarkup nếu total <= parentTotal
+    return { rebateUnit, markupPips };
   }
 
-  private async assertCanWrite(
+  /**
+   * Tự động hạ bất kỳ cháu con nào đang vượt mức mới xuống đúng min(con, mới) cho từng field riêng.
+   * Chạy dựa vào đúng 1 transaction với bước ghi cha, ghi AuditLog riêng cho từng dòng bị điều chỉnh.
+   */
+  private async cascadeClampDescendants(
     userId: string,
     assetId: string,
-    rebateUnit: number,
-    markupPips: number,
+    newRebate: number,
+    newMarkup: number,
     actor: RequestActor,
-    isRootUser: boolean,
     client: DbClient,
   ): Promise<void> {
-    if (isRootUser) {
-      if (actor.type !== 'ADMIN') {
-        throw new ForbiddenException('Only Admin can update config for root MIB');
-      }
-    } else if (actor.type !== 'ADMIN') {
-      const { isDirectParent, parentConfig } = await this.resolveParentAccess(
-        userId,
-        actor.id,
-        assetId,
-        client,
-      );
+    const children = await client.user.findMany({ where: { parentId: userId }, select: { id: true } });
+    if (children.length === 0) return;
 
-      if (!isDirectParent) {
-        throw new ForbiddenException('Only the direct parent can update this user\'s config');
-      }
-      if (!parentConfig) {
-        throw new BadRequestException('Orphan config: direct parent has no config for this asset');
-      }
-      if (rebateUnit > parentConfig.rebateUnit) {
-        throw new BadRequestException(
-          `rebateUnit ${rebateUnit} exceeds parent cap ${parentConfig.rebateUnit}`,
-        );
-      }
-      if (markupPips > parentConfig.markupPips) {
-        throw new BadRequestException(
-          `markupPips ${markupPips} exceeds parent cap ${parentConfig.markupPips}`,
-        );
-      }
-    }
-    // Admin ghi cho non-root: bỏ qua check trần-trên (Admin bypass parent cap như cũ).
-    // MỌI trường hợp qua được tới đây (root hoặc không, Admin hoặc không) đều phải
-    // qua check trần-dưới sau đây — đây là phần MỚI, trước đây bị bỏ sót hoàn toàn,
-    // là nguyên nhân gây ra ledger âm khi cha tự hạ xuống dưới mức con.
-    await this.assertNoChildExceeds(userId, assetId, rebateUnit, markupPips, client);
-  }
-
-  /**
-   * `tx`: OPTIONAL Prisma transaction client. Pass this when calling upsert()
-   * from inside another service's $transaction (e.g. TemplateApplyService
-   * applying several template items atomically), so every query AND the
-   * resulting audit log participate in that same transaction and roll back
-   * together on failure. When omitted, runs standalone against `this.prisma`
-   * exactly as before (used by CommissionConfigController).
-   */
-  async upsert(dto: UpsertConfigDto, actor: RequestActor, tx?: Prisma.TransactionClient) {
-    const client: DbClient = tx ?? this.prisma;
-    const { userId, assetId, rebateUnit, markupPips } = dto;
-
-    const user = await client.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    await this.assertCanWrite(userId, assetId, rebateUnit, markupPips, actor, user.parentId === null, client);
-
-    const transferUnit = rebateUnit + markupPips;
-    const existing = await client.userCommissionConfig.findUnique({
-      where: { userId_assetId: { userId, assetId } },
+    const childIds = children.map((c) => c.id);
+    const childConfigs = await client.userCommissionConfig.findMany({
+      where: { assetId, userId: { in: childIds } },
     });
 
-    if (existing) {
+    for (const cfg of childConfigs) {
+      const curRebate = Number(cfg.rebateUnit);
+      const curMarkup = Number(cfg.markupPips);
+      const clampedRebate = Math.min(curRebate, newRebate);
+      const clampedMarkup = Math.min(curMarkup, newMarkup);
+
+      if (clampedRebate === curRebate && clampedMarkup === curMarkup) {
+        continue; // con vẫn hợp lệ, không cần đụng vào
+      }
+
       const updated = await client.userCommissionConfig.update({
-        where: { userId_assetId: { userId, assetId } },
-        data: { rebateUnit, markupPips, transferUnit, version: existing.version + 1 },
+        where: { id: cfg.id },
+        data: {
+          rebateUnit: clampedRebate,
+          markupPips: clampedMarkup,
+          transferUnit: clampedRebate + clampedMarkup,
+          version: cfg.version + 1,
+        },
       });
 
+      const tx = client === this.prisma ? undefined : (client as Prisma.TransactionClient);
       await this.auditLog.createLog(
         {
           actorId: actor.id,
           actorType: actor.type,
-          action: 'UPDATE_COMMISSION_CONFIG',
+          action: 'AUTO_CASCADE_ADJUST_COMMISSION_CONFIG',
           entityType: 'UserCommissionConfig',
           entityId: updated.id,
-          beforeData: existing,
-          afterData: updated,
+          beforeData: cfg,
+          afterData: { ...updated, reason: `Cha (${userId}) đổi xuống rebate=${newRebate}/markup=${newMarkup}, tự động hạ con theo` },
         },
         tx,
       );
 
-      return updated;
+      // Đệ quy xuống cháu, dùng giá trị MỚI (đã clamp) của con này làm mốc mới
+      await this.cascadeClampDescendants(cfg.userId, assetId, clampedRebate, clampedMarkup, actor, client);
+    }
+  }
+
+  async upsert(dto: UpsertConfigDto, actor: RequestActor, tx?: Prisma.TransactionClient, bypassSplit = false) {
+    if (tx) {
+      return this._executeUpsert(dto, actor, tx, bypassSplit);
+    }
+    return this.prisma.$transaction(async (innerTx) => {
+      return this._executeUpsert(dto, actor, innerTx, bypassSplit);
+    });
+  }
+
+  private async _executeUpsert(dto: UpsertConfigDto, actor: RequestActor, tx: Prisma.TransactionClient, bypassSplit = false) {
+    const { userId, assetId } = dto;
+
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    const isRoot = user.parentId === null;
+
+    let rebateUnit: number;
+    let markupPips: number;
+
+    if (actor.type === 'ADMIN') {
+      // Admin: bypass hoàn toàn cap-check của cha (hành vi cũ, edge case #8 đã chốt).
+      if (dto.rebateUnit === undefined || dto.markupPips === undefined) {
+        throw new BadRequestException('Bắt buộc phải cung cấp rebateUnit và markupPips');
+      }
+      rebateUnit = dto.rebateUnit;
+      markupPips = dto.markupPips;
+    } else if (bypassSplit) {
+      // Non-admin áp template (MIB/IB): được set rebate/markup lẻ thay vì chỉ transferUnit,
+      // NHƯNG vẫn phải tuân thủ cap của cha trực tiếp — không được bypass check này.
+      if (dto.rebateUnit === undefined || dto.markupPips === undefined) {
+        throw new BadRequestException('Bắt buộc phải cung cấp rebateUnit và markupPips');
+      }
+      if (isRoot) {
+        throw new ForbiddenException('Only Admin can update config for root MIB');
+      }
+
+      const { isDirectParent, parentConfig } = await this.resolveParentAccess(userId, actor.id, assetId, tx);
+      if (!isDirectParent) throw new ForbiddenException('Only the direct parent can update this user\'s config');
+      if (!parentConfig) throw new BadRequestException('Orphan config: direct parent has no config for this asset');
+
+      const requestedTotal = dto.rebateUnit + dto.markupPips;
+      if (requestedTotal > parentConfig.rebateUnit + parentConfig.markupPips) {
+        throw new BadRequestException(
+          `Template item (rebate=${dto.rebateUnit}/markup=${dto.markupPips}, tổng=${requestedTotal}) vượt tổng cha (${parentConfig.rebateUnit + parentConfig.markupPips})`,
+        );
+      }
+
+      rebateUnit = dto.rebateUnit;
+      markupPips = dto.markupPips;
     } else {
-      const created = await client.userCommissionConfig.create({
+      // Non-admin, không phải bypassSplit: logic split cũ, giữ nguyên không đổi
+      if (dto.rebateUnit !== undefined || dto.markupPips !== undefined) {
+        throw new ForbiddenException('Bạn chỉ được nhập tổng (transferUnit), không được chọn rebate/markup riêng');
+      }
+      if (dto.transferUnit === undefined) {
+        throw new BadRequestException('Thiếu transferUnit');
+      }
+      if (isRoot) {
+        throw new ForbiddenException('Only Admin can update config for root MIB');
+      }
+
+      const { isDirectParent, parentConfig } = await this.resolveParentAccess(userId, actor.id, assetId, tx);
+      if (!isDirectParent) throw new ForbiddenException('Only the direct parent can update this user\'s config');
+      if (!parentConfig) throw new BadRequestException('Orphan config: direct parent has no config for this asset');
+      if (dto.transferUnit > parentConfig.rebateUnit + parentConfig.markupPips) {
+        throw new BadRequestException(
+          `transferUnit ${dto.transferUnit} exceeds parent total ${parentConfig.rebateUnit + parentConfig.markupPips}`,
+        );
+      }
+
+      const split = this.splitByPriority(dto.transferUnit, parentConfig.rebateUnit, parentConfig.markupPips);
+      rebateUnit = split.rebateUnit;
+      markupPips = split.markupPips;
+    }
+
+    const transferUnit = rebateUnit + markupPips;
+    const existing = await tx.userCommissionConfig.findUnique({ where: { userId_assetId: { userId, assetId } } });
+
+    const saved = existing
+      ? await tx.userCommissionConfig.update({
+        where: { userId_assetId: { userId, assetId } },
+        data: { rebateUnit, markupPips, transferUnit, version: existing.version + 1 },
+      })
+      : await tx.userCommissionConfig.create({
         data: { userId, assetId, rebateUnit, markupPips, transferUnit, version: 1 },
       });
 
-      await this.auditLog.createLog(
-        {
-          actorId: actor.id,
-          actorType: actor.type,
-          action: 'UPSERT_COMMISSION_CONFIG',
-          entityType: 'UserCommissionConfig',
-          entityId: created.id,
-          beforeData: null,
-          afterData: created,
-        },
-        tx,
-      );
+    await this.auditLog.createLog(
+      {
+        actorId: actor.id,
+        actorType: actor.type,
+        action: existing ? 'UPDATE_COMMISSION_CONFIG' : 'UPSERT_COMMISSION_CONFIG',
+        entityType: 'UserCommissionConfig',
+        entityId: saved.id,
+        beforeData: existing ?? null,
+        afterData: saved,
+      },
+      tx,
+    );
 
-      return created;
-    }
+    // Tự động hạ cấp dưới
+    await this.cascadeClampDescendants(userId, assetId, rebateUnit, markupPips, actor, tx);
+
+    return saved;
   }
 
-  async update(userId: string, assetId: string, dto: UpdateConfigDto, actor: RequestActor) {
-    const { rebateUnit, markupPips, version } = dto;
+  async update(userId: string, assetId: string, dto: UpdateConfigDto, actor: RequestActor, tx?: Prisma.TransactionClient) {
+    if (tx) {
+      return this._executeUpdate(userId, assetId, dto, actor, tx);
+    }
+    return this.prisma.$transaction(async (innerTx) => {
+      return this._executeUpdate(userId, assetId, dto, actor, innerTx);
+    });
+  }
 
-    const existing = await this.prisma.userCommissionConfig.findUnique({
+  private async _executeUpdate(userId: string, assetId: string, dto: UpdateConfigDto, actor: RequestActor, tx: Prisma.TransactionClient) {
+    const { version } = dto;
+
+    const existing = await tx.userCommissionConfig.findUnique({
       where: { userId_assetId: { userId, assetId } },
     });
     if (!existing) {
@@ -230,22 +269,60 @@ export class CommissionConfigService {
       throw new ConflictException('Config has been modified by another user');
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await tx.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
+    const isRoot = user.parentId === null;
 
-    const newRebateUnit = rebateUnit ?? Number(existing.rebateUnit);
-    const newMarkupPips = markupPips ?? Number(existing.markupPips);
+    let rebateUnit: number;
+    let markupPips: number;
 
-    await this.assertCanWrite(userId, assetId, newRebateUnit, newMarkupPips, actor, user.parentId === null, this.prisma);
+    if (actor.type === 'ADMIN') {
+      if (dto.rebateUnit === undefined && dto.markupPips === undefined && dto.transferUnit === undefined) {
+        throw new BadRequestException('Phải cung cấp ít nhất một trường giá trị để cập nhật');
+      }
+      rebateUnit = dto.rebateUnit !== undefined ? dto.rebateUnit : Number(existing.rebateUnit);
+      markupPips = dto.markupPips !== undefined ? dto.markupPips : Number(existing.markupPips);
+      if (dto.transferUnit !== undefined) {
+        // Nếu admin gửi transferUnit, split ưu tiên rebate
+        const split = this.splitByPriority(dto.transferUnit, rebateUnit, markupPips);
+        rebateUnit = split.rebateUnit;
+        markupPips = split.markupPips;
+      }
+    } else {
+      // Non-admin: Chỉ nhận transferUnit
+      if (dto.rebateUnit !== undefined || dto.markupPips !== undefined) {
+        throw new ForbiddenException('Bạn chỉ được nhập tổng (transferUnit), không được chọn rebate/markup riêng');
+      }
+      if (dto.transferUnit === undefined) {
+        throw new BadRequestException('Thiếu transferUnit');
+      }
+      if (isRoot) {
+        throw new ForbiddenException('Only Admin can update config for root MIB');
+      }
 
-    const updated = await this.prisma.userCommissionConfig.update({
+      const { isDirectParent, parentConfig } = await this.resolveParentAccess(userId, actor.id, assetId, tx);
+      if (!isDirectParent) throw new ForbiddenException('Only the direct parent can update this user\'s config');
+      if (!parentConfig) throw new BadRequestException('Orphan config: direct parent has no config for this asset');
+      if (dto.transferUnit > parentConfig.rebateUnit + parentConfig.markupPips) {
+        throw new BadRequestException(
+          `transferUnit ${dto.transferUnit} exceeds parent total ${parentConfig.rebateUnit + parentConfig.markupPips}`,
+        );
+      }
+
+      const split = this.splitByPriority(dto.transferUnit, parentConfig.rebateUnit, parentConfig.markupPips);
+      rebateUnit = split.rebateUnit;
+      markupPips = split.markupPips;
+    }
+
+    const transferUnit = rebateUnit + markupPips;
+    const updated = await tx.userCommissionConfig.update({
       where: { userId_assetId: { userId, assetId } },
       data: {
-        rebateUnit: newRebateUnit,
-        markupPips: newMarkupPips,
-        transferUnit: newRebateUnit + newMarkupPips,
+        rebateUnit,
+        markupPips,
+        transferUnit,
         version: existing.version + 1,
       },
     });
@@ -258,7 +335,10 @@ export class CommissionConfigService {
       entityId: existing.id,
       beforeData: existing,
       afterData: updated,
-    });
+    }, tx);
+
+    // Tự động hạ cấp dưới
+    await this.cascadeClampDescendants(userId, assetId, rebateUnit, markupPips, actor, tx);
 
     return updated;
   }
@@ -294,6 +374,7 @@ export class CommissionConfigService {
         SELECT c.id, c."parentId", c.email, c."fullName", c.role, c."isActive", s.depth + 1
         FROM "User" c
         JOIN subtree s ON c."parentId" = s.id
+        WHERE s.depth < 50
       )
       SELECT s.*, cfg."rebateUnit", cfg."markupPips", cfg."transferUnit", cfg.version
       FROM subtree s
@@ -328,10 +409,6 @@ export class CommissionConfigService {
     return nodeById.get(rootUserId)!;
   }
 
-  /**
-   * Xem 1 cap: chinh minh + cac con TRUC TIEP kem config. Actor phai la
-   * chinh userId nay (tu xem cay cua minh) hoac Admin.
-   */
   async getDirectChildren(userId: string, assetId: string, actor: RequestActor) {
     if (actor.type !== 'ADMIN' && actor.id !== userId) {
       throw new ForbiddenException('You can only view your own direct children');
@@ -353,12 +430,17 @@ export class CommissionConfigService {
       : [];
     const cfgMap = new Map(childConfigs.map((c) => [c.userId, c]));
 
+    const isAdmin = actor.type === 'ADMIN';
+
     return {
       self: {
         userId,
         email: self.email,
-        rebateUnit: selfCfg ? Number(selfCfg.rebateUnit) : null,
-        markupPips: selfCfg ? Number(selfCfg.markupPips) : null,
+        transferUnit: selfCfg ? Number(selfCfg.rebateUnit) + Number(selfCfg.markupPips) : null,
+        ...(isAdmin && {
+          rebateUnit: selfCfg ? Number(selfCfg.rebateUnit) : null,
+          markupPips: selfCfg ? Number(selfCfg.markupPips) : null,
+        }),
         version: selfCfg ? selfCfg.version : null,
       },
       children: children.map((c) => {
@@ -368,8 +450,11 @@ export class CommissionConfigService {
           email: c.email,
           role: c.role,
           isActive: c.isActive,
-          rebateUnit: cfg ? Number(cfg.rebateUnit) : null,
-          markupPips: cfg ? Number(cfg.markupPips) : null,
+          transferUnit: cfg ? Number(cfg.rebateUnit) + Number(cfg.markupPips) : null,
+          ...(isAdmin && {
+            rebateUnit: cfg ? Number(cfg.rebateUnit) : null,
+            markupPips: cfg ? Number(cfg.markupPips) : null,
+          }),
           version: cfg ? cfg.version : null,
         };
       }),

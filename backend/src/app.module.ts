@@ -12,6 +12,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { TemplateApplyModule } from './template-apply/template-apply.module';
 import { IntegrityModule } from './integrity/integrity.module';
+import { TemplateLockModule } from './template-lock/template-lock.module';
 
 
 @Module({
@@ -26,7 +27,8 @@ import { IntegrityModule } from './integrity/integrity.module';
     LedgerModule,
     CommonModule,
     TemplateApplyModule,
-    IntegrityModule
+    IntegrityModule,
+    TemplateLockModule
   ],
   controllers: [AppController],
   providers: [AppService],
