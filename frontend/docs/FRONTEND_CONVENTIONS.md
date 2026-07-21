@@ -127,6 +127,17 @@ Bám sát `BUSINESS_RULES.md` khi build UI, cụ thể:
 - **Trang apply Template**: nếu Template có item `(0,0)`, hiện rõ trong
   preview rằng item đó "sẽ KHÔNG được áp dụng" (đã lọc bỏ ở backend), tránh
   Admin hiểu nhầm là "áp thành công cả item này".
+- **Trang apply Template — danh sách chọn**: KHÔNG gọi thẳng `GET
+  /admin/templates` để hiện lựa chọn cho user tự áp. Với MIB/IB, phải gọi
+  `GET /templates/visible` (đã trừ sẵn các template bị cha lock riêng cho
+  user đó) — xem `API_REFERENCE.md` mục Template Lock/Unlock/Visible. Nếu lỡ
+  dùng nhầm route Admin, user có thể tự áp cả template đã bị cha khoá.
+- **Action Lock/Unlock template cho con**: form chọn Template để lock PHẢI
+  lọc theo đúng `level` của user target trước khi hiện lên UI (không hiện
+  tất cả rồi để bấm nhầm) — vì backend trả 400 nếu `template.level` không
+  khớp level của user, xem `BUSINESS_RULES.md` mục 3a. Nút Lock/Unlock chỉ
+  hiện với đúng cha TRỰC TIẾP của user đang xem, ẩn hẳn (không chỉ disable)
+  với MIB xem cháu hoặc IB không liên quan.
 - **Trang sessions**: disable nút Lock/Complete dựa vào `status` hiện tại
   (`DRAFT`/`LOCKED`/`COMPLETED`) ngay từ khi render, không chỉ chờ lỗi 409.
 

@@ -13,6 +13,15 @@ Tham chiếu chéo: [`API_REFERENCE.md`](./API_REFERENCE.md) cho path/body/respo
 [`BUSINESS_RULES.md`](./BUSINESS_RULES.md) cho logic phải implement đúng,
 [`FRONTEND_CONVENTIONS.md`](./FRONTEND_CONVENTIONS.md) cho cấu trúc code.
 
+> ℹ️ **Script regression tổng hợp mới**: `backend/test/test-flow-check.js`
+> (khác với các script `test-flow0X-*.js` theo từng Flow riêng lẻ) chạy LẠI
+> TOÀN BỘ các luồng chính (Auth, Users, Commission Config, Template
+> Apply/Lock/Unlock, Payout Session/Ledger, Integrity Check) trong 1 lần —
+> dùng để regression-test nhanh sau khi sửa backend, không thay thế các
+> script theo Flow. Lần chạy gần nhất (RUN_ID=1784604666313, 21/7/2026):
+> **89/89 PASS**. Lần chạy này đồng thời phát hiện 1 tính năng backend hoàn
+> toàn mới chưa có Flow nào theo dõi — xem **Flow 09b** bên dưới.
+
 ---
 
 ## Flow 01 — Login (Admin + User)
@@ -187,6 +196,63 @@ Trong lúc viết test Flow 04, phát hiện `GET /commission-configs/children/:
 - [ ] MIB áp template cho cháu → 403
 - [ ] Preview trước khi áp: item `(0,0)` placeholder hiện rõ "sẽ KHÔNG được áp dụng"
 - [ ] Sau khi áp, verify đúng số item thực sự được ghi (không tính placeholder)
+- [ ] Danh sách Template cho user tự chọn áp PHẢI lấy từ `GET
+      /templates/visible` (không phải `GET /admin/templates`) — nếu không,
+      user có thể tự áp cả template đang bị cha khoá. Xem Flow 09b.
+
+### Ghi chú
+- API các bước trên đã PASS qua regression `test-flow-check.js` (mục "4.
+  TEMPLATE APPLY", 10/10) — backend sẵn sàng, phần còn lại là build UI theo
+  đúng checklist.
+
+---
+
+## Flow 09b — Template Lock / Unlock (cha khoá template cho con) — MỚI
+
+**Trạng thái:** Chưa làm (mới phát hiện qua regression, chưa từng có trong kế hoạch)
+**Phát hiện qua:** `test-flow-check.js`, RUN_ID=1784604666313, 21/7/2026, mục
+"7. TEMPLATE LOCK" — 14/14 PASS (backend đã có sẵn, hoạt động đúng)
+**API dùng:** `POST /templates/:templateId/lock/:userId`,
+`POST /templates/:templateId/unlock/:userId`, `GET /templates/visible`
+**Business rule:** xem `BUSINESS_RULES.md` mục 3a (mới thêm)
+**Component đề xuất:** `TemplateLockToggle` (nút trong `UserTable` hoặc
+`TemplateTable`, tuỳ hướng UX chọn — xem TODO bên dưới), dùng chung
+`lib/api/template.ts` (thêm hàm `lockTemplate`/`unlockTemplate`/`listVisible`)
+
+### Vì sao cần Flow riêng
+Đây KHÔNG phải một phần của Flow 09 (Apply) dù dùng chung route
+`/templates`— đây là quyền **ẩn/hiện** 1 template khỏi 1 user cụ thể, độc
+lập với việc apply. Flow 09 (Apply) đã lên kế hoạch từ trước nhưng chưa hề
+biết tới cơ chế lock này, nên checklist Flow 09 gốc KHÔNG đủ để build đúng
+màn hình chọn template cho user tự áp — cần Flow này trước hoặc song song.
+
+### Checklist test (chưa làm ở FE, backend đã xác nhận qua script)
+- [ ] Cha trực tiếp (MIB/IB) lock 1 template cho con trực tiếp → 200/201
+- [ ] Gọi lock lần 2 khi đã lock → vẫn 200/201 (idempotent, không hiện lỗi)
+- [ ] Cha (MIB) lock cho cháu (không phải con trực tiếp) → 403, ẩn hẳn nút
+      với UI (không chỉ disable)
+- [ ] IB không liên quan cố lock cho ai đó → 403
+- [ ] Lock template SAI level so với level user target → 400, hiện message
+      backend trả về rõ ràng; form chọn template để lock nên LỌC SẴN theo
+      đúng level của user, tránh để user chọn rồi mới báo lỗi
+- [ ] Sau khi lock: user bị lock gọi `GET /templates/visible` → template đó
+      biến mất khỏi danh sách (verify bằng cách tự thử áp — action Apply nên
+      không cho chọn template đã bị ẩn)
+- [ ] Unlock → template xuất hiện lại ngay trong `/templates/visible`
+- [ ] Admin gọi `/templates/visible` → thấy tất cả kèm field `level`;
+      non-admin gọi → KHÔNG có field `level` trong response
+
+### TODO cần quyết định trước khi build UI
+- ⚠️ Admin bypass cha-trực-tiếp: `schema.prisma` (field `lockedByType:
+  'ADMIN'|'USER'`) + `seed.ts` (demo case Admin lock/unlock) gợi ý mạnh là
+  CÓ, nhưng seed ghi thẳng qua Prisma nên bỏ qua Guard thật — chưa phải xác
+  nhận sống. Gọi thử 1 lần bằng token Admin thật (không phải cha trực tiếp)
+  trước khi quyết định có nút Lock ở `/admin/templates` hay không.
+- Chưa quyết định vị trí đặt action Lock/Unlock trên UI: (a) trong màn chi
+  tiết User (list các Template kèm toggle Lock/Unlock cho user đó), hay (b)
+  trong màn chi tiết Template (list các User con trực tiếp kèm toggle) — cả
+  2 đều gọi cùng API, chỉ khác cách trình bày. Nên hỏi lại ý định trước khi
+  code component, tránh làm xong 1 hướng rồi phải làm lại.
 
 ---
 
@@ -206,6 +272,12 @@ Trong lúc viết test Flow 04, phát hiện `GET /commission-configs/children/:
 - [ ] Complete session (LOCKED→COMPLETED) → 200/201, nút Complete tự disable
 - [ ] Complete lại session đã COMPLETED → 409
 - [ ] Lock session đã COMPLETED → 409
+
+### Ghi chú
+- Toàn bộ state machine trên đã PASS qua regression `test-flow-check.js`
+  (mục "5. PAYOUT SESSION + LEDGER", 15/15) ở tầng API — backend sẵn sàng,
+  chưa có UI. Không cần re-verify logic backend, chỉ cần build đúng theo
+  checklist.
 
 ---
 

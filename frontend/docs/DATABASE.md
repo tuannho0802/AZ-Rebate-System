@@ -19,6 +19,25 @@ file này chỉ tóm tắt để tra cứu nhanh.
   1 `assetId` + `rebateUnit`/`markupPips`. Khi tạo/update Template,
   `admin.service.ts` tự động thêm placeholder `(0,0)` cho MỌI asset chưa
   được liệt kê — xem `BUSINESS_RULES.md` mục Template Apply để hiểu tác động.
+- **TemplateLock** — bảng quan hệ ẩn 1 `Template` khỏi 1 `User` cụ thể (xem
+  `BUSINESS_RULES.md` mục 3a). ✅ Đã xác nhận qua `schema.prisma`:
+  ```prisma
+  model TemplateLock {
+    id           String   @id @default(uuid())
+    templateId   String
+    userId       String        // user bị khoá không dùng được template này
+    lockedByType String        // 'ADMIN' | 'USER' — actor đã thực hiện lock
+    lockedById   String
+    createdAt    DateTime @default(now())
+
+    @@unique([templateId, userId])  // 1 user chỉ tối đa 1 row lock / template
+    @@index([userId])
+  }
+  ```
+  `lockedByType`/`lockedById` chỉ dùng để lưu vết audit AI đã lock (không có
+  logic đọc lại 2 field này ở guard) — **không suy ra từ đây** rằng Admin
+  chắc chắn bypass được cha-trực-tiếp; xem cảnh báo ở `BUSINESS_RULES.md`
+  mục 3a về mức độ tin cậy của bằng chứng này.
 - **PayoutSession** — state machine `DRAFT → LOCKED → COMPLETED`. Field:
   `name`, `note`, `baseVolume`, `sourceUserId`, `assetId`, `status`,
   `createdByAdminId`.
@@ -130,3 +149,14 @@ kỳ vọng mảng trả về rỗng. Nếu vẫn còn vi phạm, khả năng ca
 có dòng config nào** (không phải chỉ thấp hơn con) — trường hợp này câu SQL
 trên KHÔNG tự tạo dòng mới, cần xử lý tay qua `POST /commission-configs`
 (Admin token) để tạo config gốc trước.
+
+## 6. Script kiểm tra vòng lặp cha-con (dev-only, không phải API)
+
+`backend/scripts/check-cycle.ts` (hoặc vị trí tương đương) — **khác** với
+`GET /admin/integrity-check` (endpoint đó kiểm tra *giá trị* config cha-con
+có bị lệch không, KHÔNG kiểm tra cấu trúc cây). Script này duyệt toàn bộ
+`User.parentId` bằng con trỏ tuần tự (không đệ quy CTE), phát hiện nếu có
+vòng lặp thật sự trong cây phân cấp (VD do sửa tay `parentId` qua SQL trực
+tiếp gây A→B→A). Chạy tay bằng `npx ts-node scripts/check-cycle.ts` khi nghi
+ngờ dữ liệu bị hỏng cấu trúc cây sau khi thao tác SQL thủ công — không có
+route API tương ứng, không phải thứ FE gọi.

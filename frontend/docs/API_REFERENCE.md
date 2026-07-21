@@ -92,6 +92,26 @@ Response `POST`/`PATCH` (1 record):
 |---|---|---|
 | POST | `/templates/:templateId/apply/:userId` | Root: chỉ Admin. Non-root: Admin hoặc **cha trực tiếp**. Item `(0,0)` bị lọc bỏ trước khi apply — xem `BUSINESS_RULES.md` |
 
+## Template Lock / Unlock / Visible
+
+> ✅ **Đã xác nhận qua log thật (`test-flow-check.js`, RUN_ID=1784604666313,
+> 21/7/2026, 89/89 PASS)** — 3 route này TRƯỚC ĐÂY chưa có trong tài liệu,
+> nay bổ sung đầy đủ. FE cần route này cho Flow 09 (Template Apply) vì
+> template bị lock sẽ không xuất hiện trong danh sách mà user đó được apply.
+
+| Method | Path | Actor | Ghi chú |
+|---|---|---|---|
+| POST | `/templates/:templateId/lock/:userId` | **Cha TRỰC TIẾP** của `userId` | Khoá 1 template cụ thể khỏi tầm nhìn của 1 user. Idempotent — gọi lại khi đã lock vẫn `200/201`, không lỗi. `templateId.level` PHẢI khớp level hiện tại của `userId` — sai → `400` kèm message `"Template level=X không khớp level=Y của user này"`. Không phải cha trực tiếp (kể cả IB thường, kể cả MIB với cháu) → `403` |
+| POST | `/templates/:templateId/unlock/:userId` | **Cha TRỰC TIẾP** của `userId` | Gỡ khoá, template xuất hiện lại trong `GET /templates/visible` của user đó ngay lập tức |
+| GET | `/templates/visible` | Actor hiện tại (theo token) | Trả danh sách template mà actor được thấy — đã trừ các template đang bị lock riêng cho actor đó. **Admin**: thấy tất cả, kèm field `level`. **Non-admin (MIB/IB)**: KHÔNG có field `level` trong response (ẩn hoàn toàn, giống `GET /admin/templates`) |
+
+> ⚠️ **Bằng chứng gián tiếp, chưa test API sống**: `schema.prisma` có field
+> `TemplateLock.lockedByType: 'ADMIN'|'USER'` và `seed.ts` demo case Admin
+> lock/unlock — gợi ý mạnh Admin CÓ bypass được cha-trực-tiếp. Nhưng seed ghi
+> thẳng qua Prisma (bỏ qua Guard thật), nên đây KHÔNG phải xác nhận sống.
+> Gọi thử 1 lần bằng token Admin thật trước khi build UI dựa hẳn vào đây —
+> xem `BUSINESS_RULES.md` mục 3a.
+
 ## Integrity Check (Admin-only)
 
 | Method | Path | Ghi chú |
@@ -125,7 +145,7 @@ dùng 2 cờ này để hiển thị đúng phần nào đang lệch, thay vì t
 
 | Status | Khi nào gặp | UI nên làm gì |
 |---|---|---|
-| 400 | Vượt trần cha, hạ dưới trần con, orphan config, template rỗng/toàn placeholder | Hiện message trả về (đã có sẵn tiếng Việt rõ ràng từ backend) |
+| 400 | Vượt trần cha, hạ dưới trần con, orphan config, template rỗng/toàn placeholder, **lock template sai level so với user target** | Hiện message trả về (đã có sẵn tiếng Việt rõ ràng từ backend) |
 | 403 | Không đúng cha trực tiếp, không phải Admin khi cần, IB xem subtree | Nên **ẩn action trước** dựa vào role/quan hệ cha-con, không chỉ chờ lỗi 403 |
 | 404 | User/Asset/Template/Session không tồn tại | Điều hướng về danh sách |
 | 409 | Version conflict (PATCH config), lock/complete session sai trạng thái | "Dữ liệu đã bị thay đổi, tải lại trang" — GET lại rồi thử tiếp |

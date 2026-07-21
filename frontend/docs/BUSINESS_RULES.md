@@ -59,6 +59,45 @@ Với mỗi cặp `(userId, assetId)`:
 - Toàn bộ item trong 1 lần apply chạy trong 1 transaction — 1 item fail thì
   rollback hết, không áp dụng phần nào.
 
+## 3a. Template Lock / Unlock — ẩn template khỏi 1 user cụ thể
+
+> ✅ Xác nhận qua log thật `test-flow-check.js` (RUN_ID=1784604666313,
+> 21/7/2026, 89/89 PASS). Đây là rule MỚI bổ sung, độc lập với rule Apply ở
+> mục 3, KHÔNG ghi đè lên nhau — 1 template có thể vẫn "áp được" (nếu Admin
+> gọi Apply trực tiếp) nhưng bị ẩn khỏi danh sách user đó tự chọn qua UI.
+
+- Mục đích: cha (MIB hoặc IB) muốn NGĂN 1 user con trực tiếp của mình tự
+  chọn áp 1 Template cụ thể (VD template có mức hoa hồng cao, cha không
+  muốn con tự ý dùng), mà không cần xoá hẳn Template khỏi hệ thống.
+- Actor được lock/unlock: **chỉ cha TRỰC TIẾP** của user bị ảnh hưởng —
+  khớp đúng tinh thần rule 2.1 (không phải "bất kỳ ai trong subtree"). MIB
+  lock cho cháu (không phải con trực tiếp) → 403. IB thường (không phải cha
+  của target) cố lock → 403.
+- **Ràng buộc level**: `template.level` phải khớp ĐÚNG level hiện tại của
+  user bị lock/unlock. Lock/unlock sai level → 400, kèm message rõ
+  `"Template level=X không khớp level=Y của user này"`. Đây là lý do khi
+  build FE, danh sách Template cho action Lock phải được lọc theo đúng level
+  của user đang chọn — không hiện tất cả Template rồi để user tự bấm nhầm.
+- **Idempotent**: gọi lock khi đã lock rồi vẫn trả 200/201, không lỗi/không
+  toggle nhầm thành unlock. Tương tự không có rule ngược lại được xác nhận
+  cho unlock khi chưa lock (FE nên tự kiểm tra trạng thái hiện tại trước khi
+  hiện nút, tránh gọi unlock thừa).
+- **Hiệu lực**: sau khi lock, template đó biến mất khỏi `GET
+  /templates/visible` CHỈ với token của user bị lock (không ảnh hưởng user
+  khác). Sau unlock, xuất hiện lại ngay, không cần refresh gì thêm ở BE.
+- `GET /templates/visible` ẩn field `level` với non-admin — cùng quy ước ẩn
+  `level` đã áp dụng ở `GET /admin/templates` (mục 1, đã có từ trước).
+- ⚠️ **Chưa xác nhận qua API sống**: schema xác nhận `TemplateLock` có field
+  `lockedByType: 'ADMIN' | 'USER'` và `seed.ts` có demo case Admin tự
+  lock/unlock — đây là **bằng chứng gián tiếp khá mạnh** rằng service có hỗ
+  trợ Admin lock/unlock (bypass cha-trực-tiếp). Tuy nhiên seed ghi thẳng qua
+  Prisma Client (`prisma.templateLock.upsert/deleteMany`), **bỏ qua hoàn
+  toàn Guard/Controller thật** — giống hệt kiểu lỗi `level` gặp phải trước
+  đây (seed "đúng" không có nghĩa API guard cũng đúng permission check).
+  Trước khi build UI cho Admin tự lock/unlock, gọi thử 1 lần
+  `POST /templates/:id/lock/:userId` bằng token Admin thật (không phải cha
+  trực tiếp của user đó) để xác nhận sống — đừng dựa hẳn vào seed.
+
 ## 4. Payout Session — state machine
 
 ```
