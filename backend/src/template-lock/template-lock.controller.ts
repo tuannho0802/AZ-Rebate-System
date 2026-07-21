@@ -42,4 +42,15 @@ export class TemplateLockController {
   listVisible(@CurrentUser() user: any) {
     return this.templateLockService.listVisibleTemplates(user);
   }
+
+  @Get('locks/:userId')
+  @ApiOperation({ summary: 'List lock status for user', description: 'Lấy trạng thái khóa của tất cả template (cùng level) cho user con trực tiếp' })
+  @ApiBearerAuth('access-token')
+  @ApiParam({ name: 'userId', description: 'ID user con trực tiếp cần kiểm tra' })
+  listLockStatus(
+    @Param('userId') userId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.templateLockService.listLockStatusForUser(userId, user);
+  }
 }

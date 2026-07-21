@@ -90,4 +90,42 @@ export class TemplateLockService {
       },
     });
   }
+
+  /**
+   * Danh sách tất cả template cùng level với targetUser, kèm trạng thái lock.
+   * Actor phải là ADMIN hoặc cha trực tiếp của targetUser.
+   */
+  async listLockStatusForUser(targetUserId: string, actor: RequestActor) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!target) throw new NotFoundException('User not found');
+    if (actor.type !== 'ADMIN' && actor.id !== target.parentId) {
+      throw new ForbiddenException('Chỉ Admin hoặc cha trực tiếp mới xem được trạng thái lock của user này');
+    }
+
+    // Lấy tất cả template cùng level với user
+    const templates = await this.prisma.template.findMany({
+      where: { level: target.level },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        level: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    // Lấy danh sách lock hiện tại cho user này
+    const locks = await this.prisma.templateLock.findMany({
+      where: { userId: targetUserId },
+      select: { templateId: true },
+    });
+    const lockedSet = new Set(locks.map((l) => l.templateId));
+
+    return templates.map((t) => ({
+      ...t,
+      isLocked: lockedSet.has(t.id),
+    }));
+  }
 }
