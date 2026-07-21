@@ -8,6 +8,7 @@ import { Asset, listAssets } from '../../lib/api/admin';
 import { User, SubtreeNode, listUsers, getSubtree } from '../../lib/api/user';
 import AssetTable from '../../components/AssetTable';
 import { PageShell, TopNav, PageBody, Card, ActiveBadge, RoleBadge, EmptyState, Loading } from '../../components/ui/primitives';
+import SubtreeTree, { buildSubtreeHierarchy } from '../../components/tree/SubtreeTree';
 
 export default function MibPage() {
   const { user, logout } = useAuth();
@@ -92,27 +93,20 @@ export default function MibPage() {
 
           {loadingSubtree && <Loading label="Đang tải cây con..." />}
 
-          {!loadingSubtree && subtree.length > 0 && (
-            <div className="mt-6 pt-6 border-t border-slate-100">
-              <h3 className="text-sm font-semibold text-slate-700 mb-3">Subtree view</h3>
-              <div className="space-y-1">
-                {subtree.map((node) => {
-                  const info = userById.get(node.id);
-                  return (
-                    <div key={node.id} className="flex items-center gap-2 py-1" style={{ paddingLeft: `${node.depth * 20}px` }}>
-                      <span className="text-slate-300 text-xs w-4 shrink-0">{node.depth === 0 ? '●' : '└'}</span>
-                      <span className="font-medium text-sm text-slate-700" title={node.id}>
-                        {info ? (info.fullName ? `${info.fullName} (${info.email})` : info.email) : 'Không xác định'}
-                      </span>
-                      <span className="text-xs text-slate-400">cấp {node.depth}</span>
-                      {info && <RoleBadge role={info.role} />}
-                    </div>
-                  );
-                })}
+          {!loadingSubtree && subtree.length > 0 && (() => {
+            const rootTree = buildSubtreeHierarchy(subtree, userById);
+            return (
+              <div className="mt-6 pt-6 border-t border-slate-100">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Cấu trúc cây con (Subtree View)</h3>
+                {rootTree ? (
+                  <SubtreeTree root={rootTree} defaultExpandedDepth={2} currentActorId={user.sub} />
+                ) : (
+                  <EmptyState title="User này chưa có con" />
+                )}
+                <p className="text-xs text-slate-400 mt-3">Click vào biểu tượng icon (► / ▼) để thu gọn hoặc mở rộng từng nhánh cây.</p>
               </div>
-              <p className="text-xs text-slate-400 mt-3">Depth 0 = chính user bạn đã chọn.</p>
-            </div>
-          )}
+            );
+          })()}
 
           {!loadingSubtree && subtree.length === 0 && subtreeRoot && (
             <EmptyState title="User này chưa có con" />
