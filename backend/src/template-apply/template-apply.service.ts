@@ -2,7 +2,6 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { CommissionConfigService } from '../commission-config/commission-config.service';
-import { maskConfigForActor } from '../common/mask-commission.util';
 
 export interface RequestActor {
   id: string;
@@ -121,6 +120,14 @@ export class TemplateApplyService {
       afterData: { templateId, userId, appliedConfigs },
     });
 
-    return appliedConfigs.map((cfg) => maskConfigForActor(cfg, actor));
+    // [SUA — bug double-mask]: appliedConfigs đã được mask TỪNG ITEM ngay bên
+    // trong vòng lặp ở trên (commissionConfigService.upsert() luôn tự mask
+    // trước khi return — xem dòng cuối của hàm upsert()). Mask lại lần 2 ở
+    // đây là THỪA và SAI: với actor không phải Admin, item trong appliedConfigs
+    // đã không còn field rebateUnit/markupPips (bị destructure mất từ lần mask
+    // trước) — maskConfigForActor gọi lần 2 sẽ tính lại
+    // maxPips = Number(undefined) + Number(undefined) = NaN, ghi đè lên
+    // maxPips ĐÚNG đã có sẵn. Trả thẳng appliedConfigs, không mask lại.
+    return appliedConfigs;
   }
 }
