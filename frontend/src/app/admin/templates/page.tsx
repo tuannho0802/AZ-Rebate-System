@@ -17,6 +17,7 @@ import {
 } from '../../../lib/api/template';
 import TemplateTable from '../../../components/TemplateTable';
 import TemplateFormDialog from '../../../components/TemplateFormDialog';
+import SearchableSelect from '../../../components/ui/SearchableSelect';
 
 export default function AdminTemplatesPage() {
     const { user, isLoading } = useAuth();
@@ -185,33 +186,31 @@ export default function AdminTemplatesPage() {
                     <div className="grid grid-cols-3 gap-4 items-end">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Template</label>
-                            <select
+                            <SearchableSelect
+                                options={templates.map((t) => ({
+                                    id: t.id,
+                                    label: t.name,
+                                    sublabel: `${t.items?.length ?? 0} asset`,
+                                    tag: `Cấp ${t.level}`,
+                                }))}
                                 value={applyForm.templateId}
-                                onChange={(e) => setApplyForm({ ...applyForm, templateId: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded"
-                            >
-                                <option value="">-- Select Template --</option>
-                                {templates.map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                        {t.name} ({t.items?.length ?? 0} asset)
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={(val) => setApplyForm({ ...applyForm, templateId: val })}
+                                placeholder="Chọn Template..."
+                            />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">User (bất kỳ cấp nào)</label>
-                            <select
+                            <SearchableSelect
+                                options={users.map((u) => ({
+                                    id: u.id,
+                                    label: u.fullName ? `${u.fullName} (${u.email})` : u.email,
+                                    sublabel: u.email,
+                                    tag: u.role,
+                                }))}
                                 value={applyForm.userId}
-                                onChange={(e) => setApplyForm({ ...applyForm, userId: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded"
-                            >
-                                <option value="">-- Select User --</option>
-                                {users.map((u) => (
-                                    <option key={u.id} value={u.id}>
-                                        {u.role} — {u.fullName ?? u.email} ({u.email})
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={(val) => setApplyForm({ ...applyForm, userId: val })}
+                                placeholder="Chọn User..."
+                            />
                         </div>
                         <button
                             onClick={handleApply}

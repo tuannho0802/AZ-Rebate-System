@@ -2,6 +2,7 @@
 
 import { User } from '../lib/api/user';
 import { ActiveBadge, Button, EmptyState, Loading, RoleBadge, Table, Th, Td } from './ui/primitives';
+import { IdDisplay, buildUserMap } from './ui/IdDisplay';
 
 interface UserTableProps {
   users: User[];
@@ -18,6 +19,8 @@ export default function UserTable({ users, loading, currentPage, hasMore, onPrev
   if (users.length === 0) {
     return <EmptyState icon="👥" title="Không có user nào" description="Thử xoá bộ lọc hoặc tạo user mới." />;
   }
+
+  const userMap = buildUserMap(users);
 
   return (
     <div>
@@ -42,8 +45,12 @@ export default function UserTable({ users, loading, currentPage, hasMore, onPrev
               <Td>
                 <ActiveBadge active={u.isActive} />
               </Td>
-              <Td className="hidden md:table-cell" mono>
-                {u.parentId ? `${u.parentId.slice(0, 8)}…` : <span className="font-sans text-slate-400 italic">Root</span>}
+              <Td className="hidden md:table-cell">
+                {u.parentId ? (
+                  <IdDisplay id={u.parentId} map={userMap} />
+                ) : (
+                  <span className="font-sans text-slate-400 italic">Root</span>
+                )}
               </Td>
             </tr>
           ))}

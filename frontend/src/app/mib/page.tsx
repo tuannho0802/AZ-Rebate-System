@@ -80,12 +80,11 @@ export default function MibPage() {
                     (subtreeRoot === u.id ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100')
                   }
                 >
-                  <div className="font-medium text-slate-900 truncate">{u.email}</div>
+                  <div className="font-medium text-slate-900 truncate" title={u.id}>{u.email}</div>
                   <div className="flex items-center gap-1.5 mt-1">
                     <RoleBadge role={u.role} />
                     <ActiveBadge active={u.isActive} />
                   </div>
-                  <div className="text-xs text-slate-400 mt-1 font-mono">{u.id.slice(0, 8)}…</div>
                 </button>
               ))}
             </div>
@@ -102,8 +101,10 @@ export default function MibPage() {
                   return (
                     <div key={node.id} className="flex items-center gap-2 py-1" style={{ paddingLeft: `${node.depth * 20}px` }}>
                       <span className="text-slate-300 text-xs w-4 shrink-0">{node.depth === 0 ? '●' : '└'}</span>
-                      <span className="font-mono text-sm text-slate-600">{node.id.slice(0, 8)}…</span>
-                      <span className="text-xs text-slate-400">depth {node.depth}</span>
+                      <span className="font-medium text-sm text-slate-700" title={node.id}>
+                        {info ? (info.fullName ? `${info.fullName} (${info.email})` : info.email) : 'Không xác định'}
+                      </span>
+                      <span className="text-xs text-slate-400">cấp {node.depth}</span>
                       {info && <RoleBadge role={info.role} />}
                     </div>
                   );

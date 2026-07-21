@@ -1,24 +1,33 @@
 'use client';
 
 import { useState } from 'react';
-import { CreateUserDto } from '../lib/api/user';
+import { CreateUserDto, User } from '../lib/api/user';
 import { Dialog, FormError } from './ui/Dialog';
 import { Button, Field, Input, Select } from './ui/primitives';
+import SearchableSelect from './ui/SearchableSelect';
 
 interface UserFormDialogProps {
   open: boolean;
   onClose: () => void;
   onSave: (dto: CreateUserDto) => Promise<void>;
+  users?: User[];
   isLoading?: boolean;
 }
 
-export default function UserFormDialog({ open, onClose, onSave, isLoading }: UserFormDialogProps) {
+export default function UserFormDialog({ open, onClose, onSave, users = [], isLoading }: UserFormDialogProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<'MIB' | 'IB'>('MIB');
   const [parentId, setParentId] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  const parentOptions = users.map((u) => ({
+    id: u.id,
+    label: u.fullName ? `${u.fullName} (${u.email})` : u.email,
+    sublabel: u.email,
+    tag: u.role,
+  }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,8 +90,15 @@ export default function UserFormDialog({ open, onClose, onSave, isLoading }: Use
         </Field>
 
         {role === 'IB' && (
-          <Field label="Parent ID (chỉ áp dụng với IB)" required hint="Paste UUID của cha. IB phải có parentId; MIB không có parentId.">
-            <Input value={parentId} onChange={(e) => setParentId(e.target.value)} placeholder="Paste UUID của cha (MIB hoặc IB đã tồn tại)" required disabled={isLoading} />
+          <Field label="Người quản lý (Parent User)" required hint="Chọn MIB hoặc IB đã tồn tại làm cha quản lý trực tiếp.">
+            <SearchableSelect
+              options={parentOptions}
+              value={parentId}
+              onChange={setParentId}
+              placeholder="Gõ để tìm kiếm theo Tên hoặc Email..."
+              disabled={isLoading}
+              emptyMessage="Không tìm thấy User nào"
+            />
           </Field>
         )}
 

@@ -12,6 +12,10 @@ import {
   completeSession,
   getSession,
 } from '../../lib/api/payout-session';
+import { listUsers, User } from '../../lib/api/user';
+import { listAssets, Asset } from '../../lib/api/admin';
+import SearchableSelect from '../../components/ui/SearchableSelect';
+import { IdDisplay, buildUserMap, buildAssetMap } from '../../components/ui/IdDisplay';
 
 export default function SessionsPage() {
   const { user, logout, isLoading } = useAuth();
@@ -19,6 +23,8 @@ export default function SessionsPage() {
   const [sessions, setSessions] = useState<PayoutSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<PayoutSession | null>(null);
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
 
   const [newSession, setNewSession] = useState({
     name: '',
@@ -41,10 +47,12 @@ export default function SessionsPage() {
 
   useEffect(() => {
     if (isLoading || !user || user.type !== 'admin') return;
-    // Load sessions on mount
-    listSessions()
-      .then((data) => setSessions(data))
-      .catch(console.error);
+    // Load sessions, users, assets on mount
+    Promise.all([
+      listSessions().then((data) => setSessions(data)),
+      listUsers().then((data) => setUsers(data)),
+      listAssets().then((data) => setAssets(data)),
+    ]).catch(console.error);
   }, [isLoading, user]);
 
   const handleCreateSession = async (e: React.FormEvent) => {
@@ -127,32 +135,46 @@ export default function SessionsPage() {
                 className="px-3 py-2 border rounded"
               />
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              <input
-                type="number"
-                placeholder="Base Volume"
-                value={newSession.baseVolume}
-                onChange={(e) => setNewSession({ ...newSession, baseVolume: parseFloat(e.target.value) || 0 })}
-                min="0"
-                required
-                className="px-3 py-2 border rounded"
-              />
-              <input
-                type="text"
-                placeholder="Source User ID"
-                value={newSession.sourceUserId}
-                onChange={(e) => setNewSession({ ...newSession, sourceUserId: e.target.value })}
-                required
-                className="px-3 py-2 border rounded"
-              />
-              <input
-                type="text"
-                placeholder="Asset ID"
-                value={newSession.assetId}
-                onChange={(e) => setNewSession({ ...newSession, assetId: e.target.value })}
-                required
-                className="px-3 py-2 border rounded"
-              />
+            <div className="grid grid-cols-3 gap-4 items-end">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Base Volume *</label>
+                <input
+                  type="number"
+                  placeholder="Base Volume"
+                  value={newSession.baseVolume}
+                  onChange={(e) => setNewSession({ ...newSession, baseVolume: parseFloat(e.target.value) || 0 })}
+                  min="0"
+                  required
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Source User (Nguồn Volume) *</label>
+                <SearchableSelect
+                  options={users.map((u) => ({
+                    id: u.id,
+                    label: u.fullName ? `${u.fullName} (${u.email})` : u.email,
+                    sublabel: u.email,
+                    tag: u.role,
+                  }))}
+                  value={newSession.sourceUserId}
+                  onChange={(val) => setNewSession({ ...newSession, sourceUserId: val })}
+                  placeholder="Chọn Source User..."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Asset (Sản phẩm) *</label>
+                <SearchableSelect
+                  options={assets.map((a) => ({
+                    id: a.id,
+                    label: `${a.code} — ${a.name}`,
+                    sublabel: a.category,
+                  }))}
+                  value={newSession.assetId}
+                  onChange={(val) => setNewSession({ ...newSession, assetId: val })}
+                  placeholder="Chọn Asset..."
+                />
+              </div>
             </div>
             <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
               Create Session (DRAFT)
@@ -192,8 +214,8 @@ export default function SessionsPage() {
               <p>Note: {selectedSession.note || 'N/A'}</p>
               <p>Base Volume: {selectedSession.baseVolume.toLocaleString()}</p>
               <p>Status: {selectedSession.status}</p>
-              <p>Source User: {selectedSession.sourceUserId}</p>
-              <p>Asset: {selectedSession.assetId}</p>
+              <p>Source User: <IdDisplay id={selectedSession.sourceUserId} map={buildUserMap(users)} /></p>
+              <p>Asset: <IdDisplay id={selectedSession.assetId} map={buildAssetMap(assets)} /></p>
             </div>
 
             {/* State-based buttons */}
@@ -228,21 +250,23 @@ export default function SessionsPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="bg-gray-100">
-                      <th className="px-4 py-2">Beneficiary</th>
-                      <th className="px-4 py-2">Net Rebate</th>
-                      <th className="px-4 py-2">Net Markup</th>
-                      <th className="px-4 py-2">Net Transfer</th>
-                      <th className="px-4 py-2">Calculated</th>
+                      <th className="px-4 py-2 text-left">Beneficiary</th>
+                      <th className="px-4 py-2 text-right">Net Rebate</th>
+                      <th className="px-4 py-2 text-right">Net Markup</th>
+                      <th className="px-4 py-2 text-right">Net Transfer</th>
+                      <th className="px-4 py-2 text-right">Calculated</th>
                     </tr>
                   </thead>
                   <tbody>
                     {ledgerEntries.map((entry) => (
-                      <tr key={entry.id}>
-                        <td className="px-4 py-2">{entry.beneficiaryId}</td>
-                        <td className="px-4 py-2">{entry.netRebate.toLocaleString()}</td>
-                        <td className="px-4 py-2">{entry.netMarkup.toLocaleString()}</td>
-                        <td className="px-4 py-2">{entry.netTransferUnit.toLocaleString()}</td>
-                        <td className="px-4 py-2">{entry.calculatedValue.toLocaleString()}</td>
+                      <tr key={entry.id} className="border-b">
+                        <td className="px-4 py-2 text-left">
+                          <IdDisplay id={entry.beneficiaryId} map={buildUserMap(users)} />
+                        </td>
+                        <td className="px-4 py-2 text-right">{entry.netRebate.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right">{entry.netMarkup.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right">{entry.netTransferUnit.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right font-medium">{entry.calculatedValue.toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>

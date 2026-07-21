@@ -7,6 +7,7 @@ import { User, listUsers, createUser } from '../../../lib/api/user';
 import UserTable from '../../../components/UserTable';
 import UserFormDialog from '../../../components/UserFormDialog';
 import { PageShell, TopNav, PageBody, Card, Button, Field, Input } from '../../../components/ui/primitives';
+import SearchableSelect from '../../../components/ui/SearchableSelect';
 
 export default function AdminUsersPage() {
   const { user, logout, isLoading } = useAuth();
@@ -79,8 +80,18 @@ export default function AdminUsersPage() {
         >
           <form onSubmit={handleFilter} className="flex flex-wrap gap-3 items-end mb-6 pb-6 border-b border-slate-100">
             <div className="w-64">
-              <Field label="Parent ID (filter)">
-                <Input value={parentId} onChange={(e) => setParentId(e.target.value)} placeholder="Paste UUID cha (tùy chọn)" />
+              <Field label="Lọc theo Cha (Parent User)">
+                <SearchableSelect
+                  options={users.map((u) => ({
+                    id: u.id,
+                    label: u.fullName ? `${u.fullName} (${u.email})` : u.email,
+                    sublabel: u.email,
+                    tag: u.role,
+                  }))}
+                  value={parentId}
+                  onChange={(val) => setParentId(val)}
+                  placeholder="Chọn User cha..."
+                />
               </Field>
             </div>
             <div className="w-28">
@@ -108,7 +119,7 @@ export default function AdminUsersPage() {
           />
         </Card>
 
-        <UserFormDialog open={isDialogOpen} onClose={() => setIsDialogOpen(false)} onSave={handleCreateUser} isLoading={isLoadingSave} />
+        <UserFormDialog open={isDialogOpen} onClose={() => setIsDialogOpen(false)} onSave={handleCreateUser} users={users} isLoading={isLoadingSave} />
       </PageBody>
     </PageShell>
   );

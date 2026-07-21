@@ -25,6 +25,7 @@ import {
   Th,
   Td,
 } from './ui/primitives';
+import SearchableSelect from './ui/SearchableSelect';
 import BulkAssetConfigDialog from './BulkAssetConfigDialog';
 import { User, listUsers, createDirectChild, updateUser } from '../lib/api/user';
 import { Asset, listAssets } from '../lib/api/admin';
@@ -635,24 +636,28 @@ function ApplyTemplateDialog({
           </p>
         )}
         <Field label="Template" required>
-          <Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
-            <option value="">-- Select Template --</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} ({t.items?.length ?? 0} asset)
-              </option>
-            ))}
-          </Select>
+          <SearchableSelect
+            options={templates.map((t) => ({
+              id: t.id,
+              label: t.name,
+              sublabel: `${t.items?.length ?? 0} asset`,
+            }))}
+            value={templateId}
+            onChange={setTemplateId}
+            placeholder="Chọn Template..."
+          />
         </Field>
         <Field label="Con trực tiếp" required>
-          <Select value={targetUserId} onChange={(e) => setTargetUserId(e.target.value)}>
-            <option value="">-- Select con trực tiếp --</option>
-            {directChildren.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.email}
-              </option>
-            ))}
-          </Select>
+          <SearchableSelect
+            options={directChildren.map((c) => ({
+              id: c.id,
+              label: c.fullName ? `${c.fullName} (${c.email})` : c.email,
+              sublabel: c.email,
+            }))}
+            value={targetUserId}
+            onChange={setTargetUserId}
+            placeholder="Chọn con trực tiếp..."
+          />
         </Field>
         <FormError>{error}</FormError>
       </div>
