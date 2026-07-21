@@ -52,7 +52,11 @@ export default function AdminTemplatesPage() {
         if (isLoading || !user || user.type !== 'admin') return;
         setLoadingList(true);
         // Template picker cần Asset (item form) + User (form Apply) — load cả 3 song song.
-        Promise.all([listTemplates().then(setTemplates), listAssets().then(setAssets), listUsers().then(setUsers)])
+        // Không truyền limit sẽ dùng page size mặc định của backend (nhỏ hơn 100),
+        // khiến dropdown "Áp dụng Template" âm thầm thiếu user khi hệ thống có
+        // nhiều hơn 1 trang. Truyền limit=100 (giới hạn tối đa cho phép — xem
+        // validator @Max(100)) để tránh mất user trong danh sách chọn.
+        Promise.all([listTemplates().then(setTemplates), listAssets().then(setAssets), listUsers({ limit: 100 }).then(setUsers)])
             .catch(console.error)
             .finally(() => setLoadingList(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps

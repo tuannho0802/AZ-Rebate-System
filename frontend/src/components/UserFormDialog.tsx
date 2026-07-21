@@ -27,6 +27,7 @@ export default function UserFormDialog({ open, onClose, onSave, isLoading }: Use
     if (!email.trim()) return setError('Email là bắt buộc');
     if (!password.trim()) return setError('Mật khẩu là bắt buộc');
     if (!fullName.trim()) return setError('Họ tên là bắt buộc');
+    if (role === 'IB' && !parentId.trim()) return setError('Parent ID là bắt buộc khi tạo IB');
 
     const dto: CreateUserDto = {
       email: email.trim(),
@@ -81,7 +82,7 @@ export default function UserFormDialog({ open, onClose, onSave, isLoading }: Use
 
         {role === 'IB' && (
           <Field label="Parent ID (chỉ áp dụng với IB)" required hint="Paste UUID của cha. IB phải có parentId; MIB không có parentId.">
-            <Input value={parentId} onChange={(e) => setParentId(e.target.value)} placeholder="Paste UUID của cha (MIB hoặc IB đã tồn tại)" disabled={isLoading} />
+            <Input value={parentId} onChange={(e) => setParentId(e.target.value)} placeholder="Paste UUID của cha (MIB hoặc IB đã tồn tại)" required disabled={isLoading} />
           </Field>
         )}
 

@@ -31,7 +31,10 @@ export default function MibPage() {
 
   useEffect(() => {
     if (user?.sub) {
-      listUsers().then(setUserList).catch(console.error);
+      // Không truyền limit sẽ dùng page size mặc định của backend (nhỏ hơn 100),
+      // khiến lưới "Cây con cháu" âm thầm thiếu user khi MIB có nhiều con/cháu
+      // hơn 1 trang. Truyền limit=100 (giới hạn tối đa cho phép) để tránh mất user.
+      listUsers({ limit: 100 }).then(setUserList).catch(console.error);
     }
     listAssets().then(setAssets).catch(console.error);
   }, [user]);
