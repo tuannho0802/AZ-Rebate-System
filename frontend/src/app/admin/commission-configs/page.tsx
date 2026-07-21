@@ -200,7 +200,7 @@ export default function AdminCommissionConfigsPage() {
     setEditMarkupPips('');
   };
 
-  const startEdit = (node: { userId: string; email: string; version: number | null; rebateUnit: number | null; markupPips: number | null }) => {
+  const startEdit = (node: { userId: string; email: string; version: number | null; rebateUnit?: number | null; markupPips?: number | null }) => {
     if (!selectedAssetId || node.version == null) return;
     const asset = assets.find((a) => a.id === selectedAssetId);
     setEditContext({
@@ -515,7 +515,7 @@ function TreeDisplay({
   onCreate,
 }: {
   node: CommissionConfigTreeNode;
-  onEdit: (node: { userId: string; email: string; version: number | null; rebateUnit: number | null; markupPips: number | null }) => void;
+  onEdit: (node: { userId: string; email: string; version: number | null; rebateUnit?: number | null; markupPips?: number | null }) => void;
   onCreate: (node: { userId: string; email: string }) => void;
 }) {
   const hasConfig = node.version != null;

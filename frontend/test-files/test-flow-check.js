@@ -905,10 +905,21 @@ async function main() {
             const appliedList = mibApplyTemplateRes.body;
             const appliedLeaks = appliedList && appliedList.some(cfg => cfg.rebateUnit !== undefined || cfg.markupPips !== undefined);
             const appliedHasMax = appliedList && appliedList.every(cfg => cfg.maxPips !== undefined);
+            // [MOI — bat bug double-mask]: truoc day chi check maxPips !== undefined,
+            // KHONG bat duoc truong hop maxPips = NaN (van !== undefined nhung sai gia
+            // tri). NaN xay ra khi applyTemplate mask lai lan 2 tren ket qua da mask san
+            // tu upsert() ben trong. Gio check them: moi maxPips phai la so huu han > 0
+            // (lowTemplate co item that, khong phai placeholder 0/0).
+            const appliedAllValidNumbers = appliedList && appliedList.every(cfg => Number.isFinite(cfg.maxPips) && cfg.maxPips > 0);
             record(
                 '  -> Applied configs do NOT leak rebateUnit / markupPips, have maxPips',
                 !appliedLeaks && appliedHasMax,
                 `leaked=${appliedLeaks}, hasMaxPips=${appliedHasMax}`
+            );
+            record(
+                '  -> maxPips của applied configs là số hợp lệ, KHÔNG phải NaN (double-mask bug)',
+                appliedAllValidNumbers,
+                `maxPips values = ${JSON.stringify(appliedList?.map(c => c.maxPips))}`
             );
 
             // 8.4 MIB GET /admin/templates

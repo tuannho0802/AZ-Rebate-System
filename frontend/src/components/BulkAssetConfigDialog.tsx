@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { getConfigChildren, upsertConfig } from '../lib/api/commission-config';
+import { getConfigChildren, setConfigTotal } from '../lib/api/commission-config';
+import { Template } from '../lib/api/template';
 import { Dialog, FormError } from './ui/Dialog';
 import { Badge, Button, Select, Spinner } from './ui/primitives';
 
@@ -11,18 +12,17 @@ interface AssetLite {
   name: string;
 }
 
-interface TemplateLite {
-  id: string;
-  name: string;
-  items: { assetId: string; rebateUnit: number | string; markupPips: number | string }[];
-}
+// [SUA] Dialog này chỉ dùng cho MIB/IB (non-admin, xem CommissionManager.tsx) —
+// listVisibleTemplates() cho non-admin trả maxPips (đã mask), KHÔNG còn
+// rebateUnit/markupPips riêng lẻ (xem template-lock.service.ts listVisibleTemplates,
+// và field maxPips optional trong lib/api/template.ts::TemplateItem).
+// Dùng thẳng Template từ lib/api/template thay vì tự định nghĩa type riêng —
+// tránh lệch shape với CommissionManager.tsx (nơi truyền prop `templates` vào đây).
 
 interface RowState {
   assetId: string;
-  rebateUnit: string;
-  markupPips: string;
-  capRebate: number | null; // giá trị hiện tại của actor cho asset này — hiển thị để biết trần
-  capMarkup: number | null;
+  transferUnit: string;
+  capTotal: number | null; // MaxPips hiện tại của actor cho asset này — hiển thị để biết trần
   hadExisting: boolean; // có config sẵn cho user này trước khi mở form không
   status: 'idle' | 'saving' | 'saved' | 'error';
   errorMessage?: string;
@@ -34,7 +34,7 @@ interface BulkAssetConfigDialogProps {
   ownId: string; // actor hiện tại — dùng để lấy cap (getConfigChildren trả cả self + children)
   targetUser: { id: string; email: string; fullName?: string | null } | null;
   assets: AssetLite[];
-  templates?: TemplateLite[];
+  templates?: Template[];
   onDone: () => void; // gọi lại sau khi đóng, để refresh bảng chính
 }
 
@@ -79,14 +79,12 @@ export default function BulkAssetConfigDialog({
               const existing = data.children.find((c) => c.userId === targetUser.id);
               return {
                 assetId: a.id,
-                capRebate: data.self.rebateUnit != null ? Number(data.self.rebateUnit) : null,
-                capMarkup: data.self.markupPips != null ? Number(data.self.markupPips) : null,
-                rebateUnit: existing?.rebateUnit != null ? String(existing.rebateUnit) : '',
-                markupPips: existing?.markupPips != null ? String(existing.markupPips) : '',
-                hadExisting: existing?.rebateUnit != null,
+                capTotal: data.self.transferUnit != null ? Number(data.self.transferUnit) : null,
+                transferUnit: existing?.transferUnit != null ? String(existing.transferUnit) : '',
+                hadExisting: existing?.transferUnit != null,
               };
             } catch {
-              return { assetId: a.id, capRebate: null, capMarkup: null, rebateUnit: '', markupPips: '', hadExisting: false };
+              return { assetId: a.id, capTotal: null, transferUnit: '', hadExisting: false };
             }
           }),
         );
@@ -118,15 +116,14 @@ export default function BulkAssetConfigDialog({
       prev.map((r) => {
         const item = tpl.items.find((i) => i.assetId === r.assetId);
         if (!item) return r;
-        const rebate = Number(item.rebateUnit) || 0;
-        const markup = Number(item.markupPips) || 0;
-        if (rebate === 0 && markup === 0) return r; // placeholder — bỏ qua, giữ giá trị hiện tại
-        return { ...r, rebateUnit: String(rebate), markupPips: String(markup), status: 'idle' };
+        const maxPips = Number(item.maxPips) || 0;
+        if (maxPips === 0) return r; // placeholder — bỏ qua, giữ giá trị hiện tại
+        return { ...r, transferUnit: String(maxPips), status: 'idle' };
       }),
     );
   };
 
-  const dirtyRows = rows.filter((r) => r.rebateUnit !== '' || r.markupPips !== '');
+  const dirtyRows = rows.filter((r) => r.transferUnit !== '');
 
   const handleSubmit = async () => {
     if (!targetUser) return;
@@ -136,11 +133,10 @@ export default function BulkAssetConfigDialog({
     for (const row of dirtyRows) {
       updateRow(row.assetId, { status: 'saving' });
       try {
-        await upsertConfig({
+        await setConfigTotal({
           userId: targetUser.id,
           assetId: row.assetId,
-          rebateUnit: parseFloat(row.rebateUnit) || 0,
-          markupPips: parseFloat(row.markupPips) || 0,
+          transferUnit: parseFloat(row.transferUnit) || 0,
         });
         updateRow(row.assetId, { status: 'saved' });
       } catch (err: any) {
@@ -165,7 +161,7 @@ export default function BulkAssetConfigDialog({
       open={open}
       onClose={onClose}
       title={`Cấu hình nhiều Asset cho ${targetUser.email}`}
-      description="Set rebate/markup cho nhiều asset cùng lúc — giống Template, nhưng chỉ áp cho riêng user này."
+      description="Set MaxPips cho nhiều asset cùng lúc — giống Template, nhưng chỉ áp cho riêng user này."
       size="xl"
       footer={
         <>
@@ -205,8 +201,7 @@ export default function BulkAssetConfigDialog({
             <thead>
               <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 <th className="px-4 py-2.5">Asset</th>
-                <th className="px-4 py-2.5">Rebate Unit</th>
-                <th className="px-4 py-2.5">Markup Pips</th>
+                <th className="px-4 py-2.5">MaxPips</th>
                 <th className="px-4 py-2.5">Trần của bạn</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
@@ -227,25 +222,14 @@ export default function BulkAssetConfigDialog({
                       type="number"
                       step="0.0001"
                       min="0"
-                      value={row.rebateUnit}
-                      onChange={(e) => updateRow(row.assetId, { rebateUnit: e.target.value })}
-                      placeholder="—"
-                      className="w-24 px-2 py-1.5 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                  </td>
-                  <td className="px-4 py-2">
-                    <input
-                      type="number"
-                      step="0.0001"
-                      min="0"
-                      value={row.markupPips}
-                      onChange={(e) => updateRow(row.assetId, { markupPips: e.target.value })}
+                      value={row.transferUnit}
+                      onChange={(e) => updateRow(row.assetId, { transferUnit: e.target.value })}
                       placeholder="—"
                       className="w-24 px-2 py-1.5 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </td>
                   <td className="px-4 py-2 text-xs text-slate-400 tabular-nums">
-                    {row.capRebate ?? '—'} / {row.capMarkup ?? '—'}
+                    {row.capTotal ?? '—'}
                   </td>
                   <td className="px-4 py-2 text-right">
                     {row.status === 'saving' && <Spinner className="text-indigo-500" />}

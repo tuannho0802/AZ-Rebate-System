@@ -3,8 +3,14 @@ import { api } from '../api-client';
 export interface TemplateItem {
   id?: string;
   assetId: string;
-  rebateUnit: number;
-  markupPips: number;
+  // [SUA] Admin (qua GET /admin/templates) luôn thấy đủ 2 field này.
+  // Non-admin / MIB-IB (qua GET /templates/visible) bị backend mask —
+  // rebateUnit/markupPips sẽ KHÔNG có mặt trong response, thay bằng maxPips.
+  // Do đó cả 3 field đều optional ở type response; đừng giả định field nào
+  // luôn tồn tại — kiểm tra actor đang gọi API nào trước khi đọc.
+  rebateUnit?: number;
+  markupPips?: number;
+  maxPips?: number;
   asset?: { id: string; code: string; name: string };
 }
 

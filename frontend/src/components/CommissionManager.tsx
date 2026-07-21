@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/auth-context';
 import {
   getConfigChildren,
-  upsertConfig,
-  updateConfig,
+  setConfigTotal,
+  updateConfigTotal,
   CommissionConfigSelf,
   CommissionConfigChild,
 } from '../lib/api/commission-config';
@@ -168,22 +168,22 @@ export default function CommissionManager() {
   };
 
   // ---- Single-asset config (create-or-update in one dialog) ----
-  const handleSetConfig = async (dto: { rebateUnit: number; markupPips: number }) => {
+  // [SUA] MIB/IB chỉ được nhập 1 số tổng (transferUnit) — gửi rebateUnit/markupPips
+  // riêng lẻ sẽ bị backend trả 403 (ForbiddenException, xem commission-config.service.ts).
+  const handleSetConfig = async (dto: { transferUnit: number }) => {
     if (!configDialogChild || !selectedAssetId) return;
     const existing = childrenConfig.get(configDialogChild.id);
     if (existing?.version != null) {
       // Đã có config — dùng update kèm version cho optimistic lock.
-      await updateConfig(configDialogChild.id, selectedAssetId, {
-        rebateUnit: dto.rebateUnit,
-        markupPips: dto.markupPips,
+      await updateConfigTotal(configDialogChild.id, selectedAssetId, {
+        transferUnit: dto.transferUnit,
         version: existing.version,
       });
     } else {
-      await upsertConfig({
+      await setConfigTotal({
         userId: configDialogChild.id,
         assetId: selectedAssetId,
-        rebateUnit: dto.rebateUnit,
-        markupPips: dto.markupPips,
+        transferUnit: dto.transferUnit,
       });
     }
     setConfigDialogChild(null);
@@ -207,13 +207,13 @@ export default function CommissionManager() {
   return (
     <div className="space-y-6 mt-6">
       <InfoBanner>
-        <strong>Quy tắc:</strong> bạn chỉ quản lý được tài khoản và cấu hình rebate/markup cho{' '}
+        <strong>Quy tắc:</strong> bạn chỉ quản lý được tài khoản và cấu hình <strong>MaxPips</strong> (tổng nhận) cho{' '}
         <strong>con trực tiếp</strong> của chính mình — không quản lý hộ cháu/chắt. Cấu hình của{' '}
         <strong>chính bạn</strong> chỉ được set bởi cấp cao hơn (Admin hoặc cha trực tiếp của bạn).
       </InfoBanner>
 
       {/* Asset selector + self cap */}
-      <Card title="Asset đang xem" description="Chọn asset để xem/sửa cấu hình rebate & markup cho con trực tiếp.">
+      <Card title="Asset đang xem" description="Chọn asset để xem/sửa cấu hình MaxPips cho con trực tiếp.">
         {loadingLookups && <p className="text-sm text-slate-400 mb-3">Đang tải danh sách asset/template...</p>}
         {assetsError && (
           <p className="text-sm text-rose-600 mb-3">
@@ -237,7 +237,7 @@ export default function CommissionManager() {
             <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
               <span className="text-xs text-slate-500">Cấu hình của bạn ({selfInfo.email}):</span>
               <span className="text-sm font-semibold tabular-nums text-slate-900">
-                Rebate {selfInfo.rebateUnit ?? '—'} · Markup {selfInfo.markupPips ?? '—'}
+                MaxPips {selfInfo.transferUnit ?? '—'}
               </span>
               <Badge tone="indigo">trần cho con</Badge>
             </div>
@@ -274,15 +274,14 @@ export default function CommissionManager() {
                   <Th>Email</Th>
                   <Th className="hidden md:table-cell">Họ tên</Th>
                   <Th>Trạng thái</Th>
-                  <Th>Rebate</Th>
-                  <Th>Markup</Th>
+                  <Th>MaxPips</Th>
                   <Th className="text-right">Thao tác</Th>
                 </tr>
               </thead>
               <tbody>
                 {directChildren.map((child) => {
                   const cfg = childrenConfig.get(child.id);
-                  const hasConfig = cfg?.rebateUnit != null;
+                  const hasConfig = cfg?.transferUnit != null;
                   return (
                     <tr key={child.id} className="hover:bg-slate-50/70">
                       <Td className="font-medium text-slate-900">{child.email}</Td>
@@ -290,8 +289,7 @@ export default function CommissionManager() {
                       <Td>
                         <ActiveBadge active={child.isActive} />
                       </Td>
-                      <Td mono>{cfg?.rebateUnit ?? <span className="font-sans text-slate-300">chưa set</span>}</Td>
-                      <Td mono>{cfg?.markupPips ?? <span className="font-sans text-slate-300">chưa set</span>}</Td>
+                      <Td mono>{cfg?.transferUnit ?? <span className="font-sans text-slate-300">chưa set</span>}</Td>
                       <Td className="text-right whitespace-nowrap">
                         <div className="inline-flex gap-1.5">
                           <Button size="sm" variant="ghost" onClick={() => setEditingAccount(child)}>
@@ -523,10 +521,9 @@ function SetConfigDialog({
   existing: CommissionConfigChild | null;
   selfCap: CommissionConfigSelf | null;
   onClose: () => void;
-  onSave: (dto: { rebateUnit: number; markupPips: number }) => Promise<void>;
+  onSave: (dto: { transferUnit: number }) => Promise<void>;
 }) {
-  const [rebateUnit, setRebateUnit] = useState(existing?.rebateUnit != null ? String(existing.rebateUnit) : '');
-  const [markupPips, setMarkupPips] = useState(existing?.markupPips != null ? String(existing.markupPips) : '');
+  const [transferUnit, setTransferUnit] = useState(existing?.transferUnit != null ? String(existing.transferUnit) : '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -535,7 +532,7 @@ function SetConfigDialog({
     setError(null);
     setLoading(true);
     try {
-      await onSave({ rebateUnit: parseFloat(rebateUnit) || 0, markupPips: parseFloat(markupPips) || 0 });
+      await onSave({ transferUnit: parseFloat(transferUnit) || 0 });
     } catch (err: any) {
       if (err.status === 409) {
         setError('Dữ liệu đã bị đổi bởi người khác. Đóng form, mở lại để lấy version mới nhất rồi thử lại.');
@@ -567,17 +564,12 @@ function SetConfigDialog({
       <form id="set-config-form" onSubmit={submit} className="space-y-4">
         {selfCap && (
           <p className="text-xs text-slate-400">
-            Trần của bạn cho asset này: Rebate {selfCap.rebateUnit ?? '—'} · Markup {selfCap.markupPips ?? '—'}
+            Trần của bạn cho asset này (MaxPips): {selfCap.transferUnit ?? '—'}
           </p>
         )}
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Rebate Unit" required>
-            <Input type="number" min="0" step="0.0001" value={rebateUnit} onChange={(e) => setRebateUnit(e.target.value)} required disabled={loading} />
-          </Field>
-          <Field label="Markup Pips" required>
-            <Input type="number" min="0" step="0.0001" value={markupPips} onChange={(e) => setMarkupPips(e.target.value)} required disabled={loading} />
-          </Field>
-        </div>
+        <Field label="MaxPips (tổng nhận)" required>
+          <Input type="number" min="0" step="0.0001" value={transferUnit} onChange={(e) => setTransferUnit(e.target.value)} required disabled={loading} />
+        </Field>
         <FormError>{error}</FormError>
       </form>
     </Dialog>
