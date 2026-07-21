@@ -146,9 +146,22 @@ Trong lúc viết test Flow 04, phát hiện `GET /commission-configs/children/:
 
 ## Flow 07 — Users: subtree view + PATCH
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Đang làm (⚠️ code đã tồn tại NGOÀI kế hoạch — xem ghi chú)
 **API dùng:** `GET /users/:id/subtree`, `PATCH /users/:id`
 **Component đề xuất:** dùng lại `UserTable`, thêm `UserSubtreeView`
+
+### Ghi chú (phát hiện 21/7/2026 khi review code thật)
+- `mib/page.tsx` đã gọi `GET /users/:id/subtree` trực tiếp qua `api.get`
+  (không qua `lib/api/`) để hiện subtree — chưa có ở `ib/page.tsx` (đúng,
+  IB không được xem subtree).
+- `CommissionManager.tsx` (dùng chung MIB/IB) đã có `PATCH /users/:id` (sửa
+  `fullName`/`isActive` con trực tiếp) VÀ `POST /users` (tự tạo con trực
+  tiếp) — cả 2 đều gọi thẳng `api.patch`/`api.post`, không qua `lib/api/`.
+- Chưa có `lib/api/user.ts` — đây là việc cần làm trước khi tính Flow này là
+  "xong": gom 3 route trên (`subtree`, PATCH, POST tạo con) + `GET /users/:id`
+  còn thiếu vào 1 file, thay thế toàn bộ các lệnh `api.*` rải rác nói trên.
+- Checklist gốc bên dưới CHƯA được tick lại theo đúng thực tế — cần review
+  tay từng dòng sau khi gom code vào `user.ts`.
 
 ### Checklist test
 - [ ] MIB xem subtree của chính mình → 200, hiện cả cháu
@@ -184,10 +197,22 @@ Trong lúc viết test Flow 04, phát hiện `GET /commission-configs/children/:
 
 ## Flow 09 — Template Apply
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Đang làm (⚠️ code đã tồn tại NGOÀI kế hoạch — xem ghi chú)
 **Phụ thuộc:** Flow 08 phải ổn định trước (dùng chung logic `upsert`)
 **API dùng:** `POST /templates/:templateId/apply/:userId`
 **Component đề xuất:** `TemplateApplyDialog`
+
+### Ghi chú (phát hiện 21/7/2026 khi review code thật)
+- Admin apply: đã làm ở `admin/templates/page.tsx`, dùng đúng
+  `applyTemplateAsAdmin()` từ `lib/api/template.ts`.
+- MIB/IB apply cho con trực tiếp: đã làm trong `CommissionManager.tsx`
+  (`ApplyTemplateDialog`) — nhưng gọi thẳng `api.post(...)`, KHÔNG dùng
+  `lib/api/template.ts`. Cần đổi `applyTemplateAsAdmin()` thành tên chung
+  (VD `applyTemplate()`, vì actor không chỉ Admin) rồi cho
+  `CommissionManager.tsx` tái dùng, xoá lệnh `api.post` trùng lặp.
+- Checklist "Preview item (0,0) sẽ KHÔNG được áp dụng" — **CHƯA làm** ở cả 2
+  nơi trên (chỉ hiện tên template + số lượng item, không breakdown item nào
+  bị lọc).
 
 ### Checklist test
 - [ ] MIB tự áp template cho chính mình (root) → 403
@@ -258,10 +283,19 @@ màn hình chọn template cho user tự áp — cần Flow này trước hoặc
 
 ## Flow 10 — Payout Session (create/lock/complete)
 
-**Trạng thái:** Chưa làm
+**Trạng thái:** Xong — chưa test tay đầy đủ (⚠️ code đã tồn tại NGOÀI kế hoạch)
 **Phụ thuộc:** Flow 08 đã có config chain hợp lệ cho asset định test
 **API dùng:** `GET/POST /payout-sessions`, `POST /payout-sessions/:id/lock`, `POST /payout-sessions/:id/complete`
 **Component đề xuất:** `PayoutSessionStatusBadge`, `PayoutSessionActions`
+
+### Ghi chú (phát hiện 21/7/2026 khi review code thật)
+`sessions/page.tsx` ĐÃ implement đầy đủ: form tạo session, list, Lock,
+Complete, xem chi tiết + ledger — nhưng toàn bộ gọi thẳng `api.get/post`
+(không có `lib/api/payout-session.ts`), và UI còn ở dạng thô (không dùng bộ
+component `ui/primitives.tsx` như các trang khác — style lệch tông với phần
+còn lại của app). Việc còn thiếu: (1) tạo `lib/api/payout-session.ts`, (2)
+đổi UI sang dùng `PageShell`/`TopNav`/`Card`/`Table` cho đồng bộ, (3) tick lại
+checklist bên dưới bằng test tay thật.
 
 ### Checklist test
 - [ ] Non-admin tạo session → 403
@@ -275,9 +309,9 @@ màn hình chọn template cho user tự áp — cần Flow này trước hoặc
 
 ### Ghi chú
 - Toàn bộ state machine trên đã PASS qua regression `test-flow-check.js`
-  (mục "5. PAYOUT SESSION + LEDGER", 15/15) ở tầng API — backend sẵn sàng,
-  chưa có UI. Không cần re-verify logic backend, chỉ cần build đúng theo
-  checklist.
+  (mục "5. PAYOUT SESSION + LEDGER", 15/15) ở tầng API.
+- ⚠️ Sửa lại so với ghi chú trước: UI **đã có** (`sessions/page.tsx`), không
+  phải "chưa có UI" như ghi nhầm trước đó — xem ghi chú đầu mục Flow 10.
 
 ---
 

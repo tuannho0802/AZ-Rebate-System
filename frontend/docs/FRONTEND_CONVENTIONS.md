@@ -90,9 +90,11 @@ Xem bảng đầy đủ mã lỗi cần xử lý riêng ở cuối `API_REFERENC
 - `login(email, password, type: 'admin' | 'user')` gọi đúng endpoint tương
   ứng, decode token, lưu vào cookie (hết hạn 1 ngày, khớp `JWT_EXPIRES_IN`
   mặc định backend).
-- `user: JwtPayload | null` — chứa `{ id, email, type: 'ADMIN'|'USER', role? }`
-  sau khi decode. Dùng `user.type`/`user.role` để quyết định route/UI, KHÔNG
-  gọi thêm API chỉ để biết role.
+- `user: JwtPayload | null` — chứa `{ sub, email, type: 'admin'|'user', role? }`
+  sau khi decode (✅ đã sửa 21/7/2026, xác nhận qua code thật — xem
+  `API_REFERENCE.md`; field là `sub` chữ thường, KHÔNG phải `id`, và `type`
+  chữ thường, KHÔNG phải chữ HOA như bản ghi cũ). Dùng `user.type`/`user.role`
+  để quyết định route/UI, KHÔNG gọi thêm API chỉ để biết role.
 - Route guard (ở `layout.tsx` hoặc middleware): nếu `!user` → redirect
   `/login`. Nếu `user.type === 'ADMIN'` → cho vào `/admin`. Nếu
   `user.role === 'MIB'` → `/mib`. Nếu `role === 'IB'` → `/ib`. Chặn truy cập

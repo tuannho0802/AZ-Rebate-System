@@ -7,9 +7,17 @@ bản tóm tắt tĩnh cho FE tra cứu nhanh, không thay thế Swagger.
 **Auth chung**: mọi route (trừ `GET /`, `POST /auth/*`) cần header
 `Authorization: Bearer <accessToken>`. Actor decode được từ token có shape:
 ```ts
-{ id: string; email: string; type: 'ADMIN' | 'USER'; role?: string }
+{ sub: string; email: string; type: 'admin' | 'user'; role?: 'MIB' | 'IB' }
 ```
-`type` luôn viết HOA. `role` (`MIB`/`IB`) chỉ có khi `type === 'USER'`.
+> ✅ **Đã sửa lại (21/7/2026)**: bản trước ghi `{ id, ..., type: 'ADMIN'|'USER' }`
+> (chữ HOA) — SAI. Xác nhận qua code thật đang chạy: mọi page
+> (`admin/page.tsx`, `mib/page.tsx`, `ib/page.tsx`, `sessions/page.tsx`,
+> `admin/templates/page.tsx`) đều so sánh `user.type !== 'admin'` (chữ
+> thường) và đọc `user.sub` (không phải `.id`), và Flow 01 (Login) đã test
+> PASS với đúng redirect theo role. Nếu type thật là chữ HOA, toàn bộ guard
+> lowercase này sẽ luôn fail và Admin không bao giờ vào được `/admin` — thực
+> tế ngược lại. **Dùng bản này (`sub`, chữ thường) làm nguồn sự thật**, không
+> phải bản ghi trước đó.
 
 **Error format chuẩn** (mọi lỗi, qua `GlobalExceptionFilter`):
 ```json
