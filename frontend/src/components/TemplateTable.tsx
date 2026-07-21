@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { Template, TemplateItem } from '../lib/api/template';
 import { Badge, Button, EmptyState, Table, Th, Td } from './ui/primitives';
+import { LevelBadge } from './ui/LevelBadge';
 
 interface TemplateTableProps {
     templates: Template[];
@@ -12,32 +14,62 @@ interface TemplateTableProps {
 
 // Item (0,0) là placeholder backend tự sinh cho asset chưa được Admin liệt kê khi
 // tạo/sửa Template — KHÔNG phải Admin cố ý set (xem BUSINESS_RULES.md mục 3).
-// So sánh qua Number(...) vì rebateUnit/markupPips là Decimal, backend trả về
-// dạng string (vd "0.0000"), so sánh trực tiếp với 0 sẽ luôn false.
 function isPlaceholder(item: TemplateItem): boolean {
     return Number(item.rebateUnit) === 0 && Number(item.markupPips) === 0;
 }
 
 export default function TemplateTable({ templates, onEditDescription, onDeleteTemplate, onUpdateItem }: TemplateTableProps) {
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+
     if (templates.length === 0) {
         return <EmptyState icon="🗂️" title="Chưa có template nào" description="Tạo template để đóng gói sẵn 1 bộ rebate/markup, áp dụng nhanh cho nhiều IB." />;
     }
 
+    const toggleExpand = (id: string) => {
+        setExpandedId(expandedId === id ? null : id);
+    };
+
     return (
         <div className="space-y-4">
+            <div className="flex justify-end">
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setExpandedId(null)}
+                    disabled={expandedId === null}
+                >
+                    Thu gọn tất cả
+                </Button>
+            </div>
             {templates.map((t) => {
                 const setCount = t.items.filter((it) => !isPlaceholder(it)).length;
+                const isExpanded = expandedId === t.id;
+
                 return (
-                    <div key={t.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div key={t.id} className="border border-slate-200 rounded-xl overflow-hidden bg-white">
                         <div className="flex items-center justify-between px-5 py-3.5 bg-slate-50/70 border-b border-slate-200">
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-semibold text-slate-900">{t.name}</span>
-                                    <Badge tone="indigo">{setCount} asset đã set</Badge>
+                            <div className="min-w-0 flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => toggleExpand(t.id)}
+                                    className="p-1 text-slate-400 hover:text-slate-700 text-xs font-bold"
+                                    aria-label="Toggle details"
+                                >
+                                    {isExpanded ? '▼' : '►'}
+                                </button>
+                                <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-semibold text-slate-900">{t.name}</span>
+                                        {t.level !== undefined && <LevelBadge level={t.level} />}
+                                        <Badge tone="indigo">{setCount} asset đã set</Badge>
+                                    </div>
+                                    {t.description && <p className="text-sm text-slate-500 mt-0.5">{t.description}</p>}
                                 </div>
-                                {t.description && <p className="text-sm text-slate-500 mt-0.5">{t.description}</p>}
                             </div>
-                            <div className="flex gap-1.5 shrink-0">
+                            <div className="flex gap-1.5 shrink-0 items-center">
+                                <Button size="sm" variant="secondary" onClick={() => toggleExpand(t.id)}>
+                                    {isExpanded ? 'Thu gọn' : 'Xem chi tiết'}
+                                </Button>
                                 <Button size="sm" variant="ghost" onClick={() => onEditDescription(t)}>
                                     Sửa mô tả
                                 </Button>
@@ -46,57 +78,59 @@ export default function TemplateTable({ templates, onEditDescription, onDeleteTe
                                 </Button>
                             </div>
                         </div>
-                        <Table>
-                            <thead>
-                                <tr>
-                                    <Th>Asset</Th>
-                                    <Th>Rebate Unit</Th>
-                                    <Th>Markup Pips</Th>
-                                    <Th>Trạng thái</Th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {t.items.map((item) => {
-                                    const placeholder = isPlaceholder(item);
-                                    return (
-                                        <tr key={item.assetId} className={placeholder ? 'text-slate-400' : 'hover:bg-slate-50/70'}>
-                                            <Td className={placeholder ? '' : 'font-medium text-slate-900'}>
-                                                {item.asset ? `${item.asset.code} — ${item.asset.name}` : item.assetId}
-                                            </Td>
-                                            <Td>
-                                                <input
-                                                    type="number"
-                                                    defaultValue={item.rebateUnit}
-                                                    onBlur={(e) => {
-                                                        const val = parseFloat(e.target.value) || 0;
-                                                        if (val !== Number(item.rebateUnit)) onUpdateItem(t, item, 'rebateUnit', val);
-                                                    }}
-                                                    className="w-24 px-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                                />
-                                            </Td>
-                                            <Td>
-                                                <input
-                                                    type="number"
-                                                    defaultValue={item.markupPips}
-                                                    onBlur={(e) => {
-                                                        const val = parseFloat(e.target.value) || 0;
-                                                        if (val !== Number(item.markupPips)) onUpdateItem(t, item, 'markupPips', val);
-                                                    }}
-                                                    className="w-24 px-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                                />
-                                            </Td>
-                                            <Td>
-                                                {placeholder ? (
-                                                    <Badge tone="slate">Placeholder — không áp dụng</Badge>
-                                                ) : (
-                                                    <Badge tone="emerald">Admin đã set</Badge>
-                                                )}
-                                            </Td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </Table>
+                        {isExpanded && (
+                            <Table>
+                                <thead>
+                                    <tr>
+                                        <Th>Asset</Th>
+                                        <Th>Rebate Unit</Th>
+                                        <Th>Markup Pips</Th>
+                                        <Th>Trạng thái</Th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {t.items.map((item) => {
+                                        const placeholder = isPlaceholder(item);
+                                        return (
+                                            <tr key={item.assetId} className={placeholder ? 'text-slate-400' : 'hover:bg-slate-50/70'}>
+                                                <Td className={placeholder ? '' : 'font-medium text-slate-900'}>
+                                                    {item.asset ? `${item.asset.code} — ${item.asset.name}` : item.assetId}
+                                                </Td>
+                                                <Td>
+                                                    <input
+                                                        type="number"
+                                                        defaultValue={item.rebateUnit}
+                                                        onBlur={(e) => {
+                                                            const val = parseFloat(e.target.value) || 0;
+                                                            if (val !== Number(item.rebateUnit)) onUpdateItem(t, item, 'rebateUnit', val);
+                                                        }}
+                                                        className="w-24 px-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                    />
+                                                </Td>
+                                                <Td>
+                                                    <input
+                                                        type="number"
+                                                        defaultValue={item.markupPips}
+                                                        onBlur={(e) => {
+                                                            const val = parseFloat(e.target.value) || 0;
+                                                            if (val !== Number(item.markupPips)) onUpdateItem(t, item, 'markupPips', val);
+                                                        }}
+                                                        className="w-24 px-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                    />
+                                                </Td>
+                                                <Td>
+                                                    {placeholder ? (
+                                                        <Badge tone="slate">Placeholder — không áp dụng</Badge>
+                                                    ) : (
+                                                        <Badge tone="emerald">Admin đã set</Badge>
+                                                    )}
+                                                </Td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </Table>
+                        )}
                     </div>
                 );
             })}

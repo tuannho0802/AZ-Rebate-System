@@ -27,6 +27,7 @@ import {
 } from './ui/primitives';
 import SearchableSelect from './ui/SearchableSelect';
 import BulkAssetConfigDialog from './BulkAssetConfigDialog';
+import ManageTemplateLockDialog from './ManageTemplateLockDialog';
 import { User, listUsers, createDirectChild, updateUser } from '../lib/api/user';
 import { Asset, listAssets } from '../lib/api/admin';
 import { Template, listTemplates, applyTemplate } from '../lib/api/template';
@@ -61,6 +62,7 @@ export default function CommissionManager() {
   const [configDialogChild, setConfigDialogChild] = useState<User | null>(null);
   const [bulkConfigChild, setBulkConfigChild] = useState<User | null>(null);
   const [applyTemplateOpen, setApplyTemplateOpen] = useState(false);
+  const [lockTemplateOpen, setLockTemplateOpen] = useState(false);
 
   // ---- Load Assets + Templates (created by Admin, reused here) ----
   useEffect(() => {
@@ -249,6 +251,9 @@ export default function CommissionManager() {
         description={selectedAsset ? `Đang xem cấu hình cho asset ${selectedAsset.code}` : undefined}
         actions={
           <>
+            <Button size="sm" variant="secondary" onClick={() => setLockTemplateOpen(true)}>
+              Khóa/Mở khóa Template
+            </Button>
             <Button size="sm" variant="secondary" onClick={() => setApplyTemplateOpen(true)}>
               Áp dụng Template
             </Button>
@@ -359,6 +364,13 @@ export default function CommissionManager() {
         templatesError={templatesError}
         directChildren={directChildren}
         onApply={handleApplyTemplate}
+      />
+
+      <ManageTemplateLockDialog
+        open={lockTemplateOpen}
+        onClose={() => setLockTemplateOpen(false)}
+        templates={templates}
+        directChildren={directChildren}
       />
     </div>
   );
