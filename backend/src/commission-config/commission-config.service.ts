@@ -4,6 +4,7 @@ import { AuditLogService } from '../audit/audit-log.service';
 import { UpsertConfigDto } from './dto/upsert-config.dto';
 import { UpdateConfigDto } from './dto/update-config.dto';
 import { Prisma } from '@prisma/client';
+import { maskConfigForActor } from '../common/mask-commission.util';
 
 export interface RequestActor {
   id: string;
@@ -83,8 +84,18 @@ export class CommissionConfigService {
   }
 
   /**
-   * Tự động hạ bất kỳ cháu con nào đang vượt mức mới xuống đúng min(con, mới) cho từng field riêng.
-   * Chạy dựa vào đúng 1 transaction với bước ghi cha, ghi AuditLog riêng cho từng dòng bị điều chỉnh.
+   * Tự động hạ bất kỳ con/cháu nào đang vượt TỔNG mới của cha.
+   *
+   * Logic dựa theo TỔNG (phương án A đã chốt):
+   * - newParentTotal = newRebate + newMarkup
+   * - Với mỗi con: curTotal = curRebate + curMarkup
+   * - Nếu curTotal <= newParentTotal → không đổi gì (kể cả khi tỷ lệ
+   *   rebate/markup riêng lẻ của con > cha — linh hoạt breakdown).
+   * - Nếu curTotal > newParentTotal → tính lại bằng splitByPriority()
+   *   dùng giá trị MỚI của cha làm mốc tách.
+   *
+   * Chạy dựa vào đúng 1 transaction, ghi AuditLog riêng cho từng dòng bị
+   * điều chỉnh, đệ quy xuống cháu chắt.
    */
   private async cascadeClampDescendants(
     userId: string,
@@ -102,15 +113,22 @@ export class CommissionConfigService {
       where: { assetId, userId: { in: childIds } },
     });
 
+    const newParentTotal = newRebate + newMarkup;
+
     for (const cfg of childConfigs) {
       const curRebate = Number(cfg.rebateUnit);
       const curMarkup = Number(cfg.markupPips);
-      const clampedRebate = Math.min(curRebate, newRebate);
-      const clampedMarkup = Math.min(curMarkup, newMarkup);
+      const curTotal = curRebate + curMarkup;
 
-      if (clampedRebate === curRebate && clampedMarkup === curMarkup) {
-        continue; // con vẫn hợp lệ, không cần đụng vào
+      // Nếu tổng con <= tổng cha mới → hợp lệ, bỏ qua (không tạo AuditLog thừa)
+      if (curTotal <= newParentTotal) {
+        continue;
       }
+
+      // Tổng con > tổng cha mới → hạ tổng con xuống = newParentTotal,
+      // tách rebate/markup bằng splitByPriority() (ưu tiên lấy rebate cha trước)
+      const { rebateUnit: clampedRebate, markupPips: clampedMarkup } =
+        this.splitByPriority(newParentTotal, newRebate, newMarkup);
 
       const updated = await client.userCommissionConfig.update({
         where: { id: cfg.id },
@@ -131,7 +149,7 @@ export class CommissionConfigService {
           entityType: 'UserCommissionConfig',
           entityId: updated.id,
           beforeData: cfg,
-          afterData: { ...updated, reason: `Cha (${userId}) đổi xuống rebate=${newRebate}/markup=${newMarkup}, tự động hạ con theo` },
+          afterData: { ...updated, reason: `Cha (${userId}) đổi thành rebate=${newRebate}/markup=${newMarkup} (tổng=${newParentTotal}), con tổng=${curTotal} vượt → hạ xuống ${clampedRebate}/${clampedMarkup}` },
         },
         tx,
       );
@@ -244,7 +262,7 @@ export class CommissionConfigService {
     // Tự động hạ cấp dưới
     await this.cascadeClampDescendants(userId, assetId, rebateUnit, markupPips, actor, tx);
 
-    return saved;
+    return maskConfigForActor(saved, actor);
   }
 
   async update(userId: string, assetId: string, dto: UpdateConfigDto, actor: RequestActor, tx?: Prisma.TransactionClient) {
@@ -340,7 +358,7 @@ export class CommissionConfigService {
     // Tự động hạ cấp dưới
     await this.cascadeClampDescendants(userId, assetId, rebateUnit, markupPips, actor, tx);
 
-    return updated;
+    return maskConfigForActor(updated, actor);
   }
 
   /**

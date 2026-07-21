@@ -10,12 +10,44 @@ export interface RequestActor {
 export class TemplateLockService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Kiểm tra actorId có phải là TỔ TIÊN (bất kỳ cấp nào) của targetUserId hay không.
+   * Dùng truy vấn đệ quy CTE đi ngược từ target lên root, tìm xem actorId
+   * có nằm trên đường đi không.
+   *
+   * Tương tự cách SubtreeViewGuard đã nới từ "cha trực tiếp" sang "bất kỳ
+   * tổ tiên trong subtree" — tiền lệ đã có trong codebase.
+   */
+  private async isAncestorOf(actorId: string, targetUserId: string): Promise<boolean> {
+    // Đi ngược lên từ target, liệt kê toàn bộ tổ tiên (max 50 cấp để tránh vòng lặp vô hạn)
+    const ancestors = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      WITH RECURSIVE ancestors AS (
+        SELECT u.id, u."parentId", 0 AS depth
+        FROM "User" u WHERE u.id = ${targetUserId}
+        UNION ALL
+        SELECT p.id, p."parentId", a.depth + 1
+        FROM "User" p
+        JOIN ancestors a ON a."parentId" = p.id
+        WHERE a.depth < 50
+      )
+      SELECT id FROM ancestors WHERE id = ${actorId}
+      LIMIT 1;
+    `;
+    return ancestors.length > 0;
+  }
+
   async lockTemplate(templateId: string, targetUserId: string, actor: RequestActor) {
     const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
     if (!target) throw new NotFoundException('User not found');
-    if (actor.type !== 'ADMIN' && actor.id !== target.parentId) {
-      throw new ForbiddenException('Chỉ Admin hoặc cha trực tiếp mới lock/unlock được template cho user này');
+
+    // Quyền: Admin HOẶC bất kỳ tổ tiên nào trong cây (không chỉ cha trực tiếp)
+    if (actor.type !== 'ADMIN') {
+      const isAncestor = await this.isAncestorOf(actor.id, targetUserId);
+      if (!isAncestor) {
+        throw new ForbiddenException('Chỉ Admin hoặc tổ tiên trong cây mới lock/unlock được template cho user này');
+      }
     }
+
     const template = await this.prisma.template.findUnique({ where: { id: templateId } });
     if (!template) throw new NotFoundException('Template not found');
     if (template.level !== target.level) {
@@ -31,9 +63,15 @@ export class TemplateLockService {
   async unlockTemplate(templateId: string, targetUserId: string, actor: RequestActor) {
     const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
     if (!target) throw new NotFoundException('User not found');
-    if (actor.type !== 'ADMIN' && actor.id !== target.parentId) {
-      throw new ForbiddenException('Chỉ Admin hoặc cha trực tiếp mới lock/unlock được template cho user này');
+
+    // Quyền: Admin HOẶC bất kỳ tổ tiên nào trong cây
+    if (actor.type !== 'ADMIN') {
+      const isAncestor = await this.isAncestorOf(actor.id, targetUserId);
+      if (!isAncestor) {
+        throw new ForbiddenException('Chỉ Admin hoặc tổ tiên trong cây mới lock/unlock được template cho user này');
+      }
     }
+
     return this.prisma.templateLock.deleteMany({ where: { templateId, userId: targetUserId } });
   }
 
@@ -68,7 +106,7 @@ export class TemplateLockService {
     const locked = await this.prisma.templateLock.findMany({ where: { userId: actor.id }, select: { templateId: true } });
     const lockedIds = locked.map((l) => l.templateId);
 
-    return this.prisma.template.findMany({
+    const templates = await this.prisma.template.findMany({
       where: { level: self.level, id: { notIn: lockedIds } },
       select: {
         id: true,
@@ -86,20 +124,34 @@ export class TemplateLockService {
             markupPips: true,
             asset: true,
           }
-        }
+        },
       },
     });
+
+    // Non-admin: ẩn rebateUnit/markupPips riêng lẻ, thay bằng maxPips = tổng
+    return templates.map((t) => ({
+      ...t,
+      items: t.items.map((item) => {
+        const { rebateUnit, markupPips, ...rest } = item;
+        return { ...rest, maxPips: Number(rebateUnit) + Number(markupPips) };
+      }),
+    }));
   }
 
   /**
    * Danh sách tất cả template cùng level với targetUser, kèm trạng thái lock.
-   * Actor phải là ADMIN hoặc cha trực tiếp của targetUser.
+   * Actor phải là ADMIN hoặc tổ tiên trong cây của targetUser.
    */
   async listLockStatusForUser(targetUserId: string, actor: RequestActor) {
     const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
     if (!target) throw new NotFoundException('User not found');
-    if (actor.type !== 'ADMIN' && actor.id !== target.parentId) {
-      throw new ForbiddenException('Chỉ Admin hoặc cha trực tiếp mới xem được trạng thái lock của user này');
+
+    // Quyền: Admin HOẶC bất kỳ tổ tiên nào trong cây
+    if (actor.type !== 'ADMIN') {
+      const isAncestor = await this.isAncestorOf(actor.id, targetUserId);
+      if (!isAncestor) {
+        throw new ForbiddenException('Chỉ Admin hoặc tổ tiên trong cây mới xem được trạng thái lock của user này');
+      }
     }
 
     // Lấy tất cả template cùng level với user

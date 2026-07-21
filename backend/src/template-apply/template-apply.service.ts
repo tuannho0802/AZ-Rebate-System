@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { CommissionConfigService } from '../commission-config/commission-config.service';
+import { maskConfigForActor } from '../common/mask-commission.util';
 
 export interface RequestActor {
   id: string;
@@ -120,6 +121,6 @@ export class TemplateApplyService {
       afterData: { templateId, userId, appliedConfigs },
     });
 
-    return appliedConfigs;
+    return appliedConfigs.map((cfg) => maskConfigForActor(cfg, actor));
   }
 }

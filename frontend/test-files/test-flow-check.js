@@ -431,8 +431,16 @@ async function main() {
         record('  -> version cua MIB trong response', typeof mibVersion === 'number', `version = ${mibVersion}`);
 
         if (typeof mibVersion === 'number') {
+            // [SUA — theo phuong an A total-based, khong con per-field clamp]:
+            // Truoc khi PATCH nay, lv1a dang co total=8 (rebate=8, markup=0 - tu
+            // PATCH transferUnit:8 o tren, split-by-priority uu tien rebate truoc).
+            // MIB doi tu (10,10 -> total 20) sang (2,10 -> total 12). Vi curTotal
+            // cua lv1a (8) <= newParentTotal (12), theo dung spec cascadeClampDescendants
+            // (chi trigger re-split khi curTotal > newParentTotal), lv1a KHONG bi dong gi -
+            // giu nguyen rebate=8/markup=0. Day KHONG con la "auto-clamp xuong 2" nhu
+            // hanh vi per-field cu nua.
             await check(
-                '[Tran-duoi / Auto-clamp] Admin PATCH MIB (root) ha rebateUnit xuong duoi muc con (2 < 8) -> phai cho phep (200) va tu dong ha con',
+                '[Tran-duoi / Total-based] Admin PATCH MIB (root) ha total tu 20 xuong 12 (con van <= 12) -> phai cho phep (200) va KHONG dong gi den con',
                 'PATCH',
                 `/commission-configs/${mib.id}/${asset.id}`,
                 { token: adminToken, body: { rebateUnit: 2, markupPips: 10, version: mibVersion } },
@@ -440,7 +448,7 @@ async function main() {
             );
 
             const mibAfterRes = await check(
-                '  -> GET lai self+children MIB de verify con tu dong ha',
+                '  -> GET lai self+children MIB de verify con KHONG bi dong (total con van nam trong total cha moi)',
                 'GET',
                 `/commission-configs/children/${mib.id}?assetId=${asset.id}`,
                 { token: adminToken },
@@ -448,10 +456,11 @@ async function main() {
             );
             const lv1aAfter = mibAfterRes.body?.children?.find((c) => c.userId === lv1a.id);
             const lv1aRebate = lv1aAfter ? Number(lv1aAfter.rebateUnit) : null;
+            const lv1aMarkup = lv1aAfter ? Number(lv1aAfter.markupPips) : null;
             record(
-                '  -> rebateUnit cua lv1-a tu dong bi ha xuong bang rebateUnit cua MIB (2)',
-                lv1aRebate === 2,
-                `lv1-a rebateUnit = ${lv1aRebate} (ky vong 2)`
+                '  -> lv1-a giu nguyen rebate=8/markup=0 (total=8 <= total cha moi=12, khong can re-split)',
+                lv1aRebate === 8 && lv1aMarkup === 0,
+                `lv1-a rebateUnit=${lv1aRebate}, markupPips=${lv1aMarkup} (ky vong rebate=8, markup=0)`
             );
         } else {
             record('SKIP test tran-duoi cho MIB', false, 'Khong lay duoc version cua MIB tu response children');
@@ -598,18 +607,43 @@ async function main() {
                 [200, 201]
             );
 
-            await check(
-                'MIB lock template cho user KHÔNG phải con trực tiếp (cháu lv2-a) -> phải 403',
+            // Tạo template level 2 để test lock cho grandchild (lv2a có level = 2)
+            const level2TemplateRes = await check(
+                'Admin tạo Template Level 2 (cho cháu lv2-a)',
                 'POST',
-                `/templates/${template.id}/lock/${lv2a.id}`,
+                '/admin/templates',
+                {
+                    token: adminToken,
+                    body: {
+                        name: `Level 2 Template ${RUN_ID}`,
+                        level: 2,
+                        items: [{ assetId: asset.id, rebateUnit: 1, markupPips: 1 }],
+                    },
+                },
+                201
+            );
+            const level2Template = level2TemplateRes.body;
+
+            await check(
+                'MIB lock template cho user KHÔNG phải con trực tiếp (cháu lv2-a) -> giờ phải OK (200/201) do MIB là tổ tiên',
+                'POST',
+                `/templates/${level2Template.id}/lock/${lv2a.id}`,
                 { token: mibToken },
-                403
+                [200, 201]
             );
 
             await check(
-                'IB thường (không phải cha của target) cố lock template cho ai đó -> phải 403',
+                'MIB unlock template cho cháu lv2-a -> 200/201',
                 'POST',
-                `/templates/${template.id}/lock/${lv1b.id}`,
+                `/templates/${level2Template.id}/unlock/${lv2a.id}`,
+                { token: mibToken },
+                [200, 201]
+            );
+
+            await check(
+                'IB thường (không phải cha hay tổ tiên của target) cố lock template cho ai đó -> phải 403',
+                'POST',
+                `/templates/${lowTemplate.id}/lock/${lv1b.id}`,
                 { token: lv1aToken },
                 403
             );
@@ -820,6 +854,191 @@ async function main() {
                 { token: adminToken },
                 409
             );
+
+            // ===== 8. MAXPIPS / MASK COMMISSION & AUDIT LOCK LAX TESTS =====
+            section('8. MAXPIPS & PASSWORD HASH & TOTAL-BASED CASCADE CLAMP');
+
+            // 8.1 MIB POST /commission-configs to set transferUnit
+            const mibSetChildConfig = await check(
+                'MIB POST /commission-configs set transferUnit for lv1-a',
+                'POST',
+                '/commission-configs',
+                {
+                    token: mibToken,
+                    body: { userId: lv1a.id, assetId: asset.id, transferUnit: 6 }
+                },
+                [200, 201]
+            );
+            const mibSetBody = mibSetChildConfig.body;
+            record(
+                '  -> Response does NOT leak rebateUnit / markupPips, has maxPips',
+                mibSetBody && mibSetBody.maxPips === 6 && mibSetBody.rebateUnit === undefined && mibSetBody.markupPips === undefined,
+                `maxPips=${mibSetBody?.maxPips}, rebateUnit=${mibSetBody?.rebateUnit}, markupPips=${mibSetBody?.markupPips}`
+            );
+
+            // 8.2 MIB PATCH /commission-configs/:userId/:assetId
+            const mibPatchChildConfig = await check(
+                'MIB PATCH /commission-configs update transferUnit for lv1-a',
+                'PATCH',
+                `/commission-configs/${lv1a.id}/${asset.id}`,
+                {
+                    token: mibToken,
+                    body: { transferUnit: 7, version: mibSetBody.version }
+                },
+                200
+            );
+            const mibPatchBody = mibPatchChildConfig.body;
+            record(
+                '  -> Response does NOT leak rebateUnit / markupPips, has maxPips',
+                mibPatchBody && mibPatchBody.maxPips === 7 && mibPatchBody.rebateUnit === undefined && mibPatchBody.markupPips === undefined,
+                `maxPips=${mibPatchBody?.maxPips}, rebateUnit=${mibPatchBody?.rebateUnit}, markupPips=${mibPatchBody?.markupPips}`
+            );
+
+            // 8.3 MIB POST /templates/:id/apply/:userId
+            const mibApplyTemplateRes = await check(
+                'MIB apply template to lv1-b',
+                'POST',
+                `/templates/${lowTemplate.id}/apply/${lv1b.id}`,
+                { token: mibToken },
+                [200, 201]
+            );
+            const appliedList = mibApplyTemplateRes.body;
+            const appliedLeaks = appliedList && appliedList.some(cfg => cfg.rebateUnit !== undefined || cfg.markupPips !== undefined);
+            const appliedHasMax = appliedList && appliedList.every(cfg => cfg.maxPips !== undefined);
+            record(
+                '  -> Applied configs do NOT leak rebateUnit / markupPips, have maxPips',
+                !appliedLeaks && appliedHasMax,
+                `leaked=${appliedLeaks}, hasMaxPips=${appliedHasMax}`
+            );
+
+            // 8.4 MIB GET /admin/templates
+            const mibGetTemplatesRes = await check(
+                'MIB GET /admin/templates to view list',
+                'GET',
+                '/admin/templates',
+                { token: mibToken },
+                200
+            );
+            const mibTemplates = mibGetTemplatesRes.body;
+            const tplItemLeaks = mibTemplates && mibTemplates.some(t => t.items.some(item => item.rebateUnit !== undefined || item.markupPips !== undefined));
+            const tplItemHasMax = mibTemplates && mibTemplates.every(t => t.items.every(item => item.maxPips !== undefined));
+            record(
+                '  -> Template items do NOT leak rebateUnit / markupPips, have maxPips',
+                !tplItemLeaks && tplItemHasMax,
+                `leaked=${tplItemLeaks}, hasMaxPips=${tplItemHasMax}`
+            );
+
+            // 8.5 Admin calls endpoints and STILL sees rebateUnit / markupPips
+            const adminGetTemplatesRes = await check(
+                'Admin GET /admin/templates',
+                'GET',
+                '/admin/templates',
+                { token: adminToken },
+                200
+            );
+            const adminTemplates = adminGetTemplatesRes.body;
+            const adminTplHasRebateMarkup = adminTemplates && adminTemplates.some(t => t.items.some(item => item.rebateUnit !== undefined && item.markupPips !== undefined));
+            record(
+                '  -> Admin template items still contain rebateUnit and markupPips',
+                adminTplHasRebateMarkup,
+                `hasRebateMarkup=${adminTplHasRebateMarkup}`
+            );
+
+            // 8.6 Cascade clamp re-split based on total total (Plan B)
+            // Cha = MIB, set to rebate=6, markup=14 (tổng=20).
+            const adminSetParentTotalRes = await check(
+                'Admin set MIB config to rebate=6, markup=14 (total=20)',
+                'POST',
+                '/commission-configs',
+                {
+                    token: adminToken,
+                    body: { userId: mib.id, assetId: asset.id, rebateUnit: 6, markupPips: 14 }
+                },
+                [200, 201]
+            );
+
+            // Con = lv1-a, set to rebate=10, markup=5 (total=15, rebate vượt cha nhưng total <= total cha)
+            // Để set được rebate=10, markup=5 cho con, ta dùng Admin (vì non-admin không set được config riêng lẻ)
+            // Hoặc test cascade khi cha thay đổi:
+            // Trước hết, set con thành rebate=10, markup=5.
+            await check(
+                'Admin set lv1-a (con) to rebate=10, markup=5 (total=15)',
+                'POST',
+                '/commission-configs',
+                {
+                    token: adminToken,
+                    body: { userId: lv1a.id, assetId: asset.id, rebateUnit: 10, markupPips: 5 }
+                },
+                [200, 201]
+            );
+
+            // Lấy version hiện tại của cha (MIB) để PATCH
+            const childCfgForMib = await check(
+                'Get MIB config details to obtain version',
+                'GET',
+                `/commission-configs/children/${mib.id}?assetId=${asset.id}`,
+                { token: adminToken },
+                200
+            );
+            const parentVersion = childCfgForMib.body?.self?.version;
+
+            // [SUA — theo dung spec cuoi da giao Kiro, khac voi vi du minh hoa ban dau]:
+            // Admin thay doi cha tu (6,14,20) sang (3,17,20) — TONG VAN LA 20, chi doi ty le mix.
+            // Con dang co (10,5, tong=15). Vi curTotal cua con (15) <= newParentTotal (20),
+            // dung spec "curTotal <= newParentTotal -> khong can doi gi, giu nguyen breakdown cu
+            // cua con" (khong re-split lai mix chi vi cha doi ty le). Con GIU NGUYEN rebate=10,
+            // markup=5 - KHONG bi dong. Day la truong hop lam netRebate co the am o ledger
+            // (mib moi rebate=3 < con rebate=10) nhung tong van dung, da duoc note lai o backlog.
+            await check(
+                'Admin PATCH MIB config to rebate=3, markup=17 (total=20) - mix change only',
+                'PATCH',
+                `/commission-configs/${mib.id}/${asset.id}`,
+                {
+                    token: adminToken,
+                    body: { rebateUnit: 3, markupPips: 17, version: parentVersion }
+                },
+                200
+            );
+
+            const lv1aAfterMixChange = await check(
+                'Get lv1-a after parent mix change',
+                'GET',
+                `/commission-configs/children/${mib.id}?assetId=${asset.id}`,
+                { token: adminToken },
+                200
+            );
+            const lv1aUpdated = lv1aAfterMixChange.body?.children?.find(c => c.userId === lv1a.id);
+            const totalCon = Number(lv1aUpdated?.rebateUnit) + Number(lv1aUpdated?.markupPips);
+            record(
+                '  -> Con giu nguyen breakdown cu rebate=10, markup=5 (tong=15 <= tong cha moi=20, khong re-split)',
+                totalCon === 15 && Number(lv1aUpdated?.rebateUnit) === 10 && Number(lv1aUpdated?.markupPips) === 5,
+                `totalCon=${totalCon}, rebate=${lv1aUpdated?.rebateUnit}, markup=${lv1aUpdated?.markupPips} (expect total=15, rebate=10, markup=5)`
+            );
+
+            // 8.7 Admin create user and check passwordHash leak
+            const randomEmail = `testflow-hash-check-${RUN_ID}@test.com`;
+            const adminCreateUserRes = await check(
+                'Admin create new user',
+                'POST',
+                '/admin/users',
+                {
+                    token: adminToken,
+                    body: {
+                        email: randomEmail,
+                        password: SEED_PASSWORD,
+                        fullName: 'Hash Check User',
+                        role: 'MIB'
+                    }
+                },
+                201
+            );
+            const createdUser = adminCreateUserRes.body;
+            record(
+                '  -> Response does NOT leak passwordHash',
+                createdUser && createdUser.passwordHash === undefined,
+                `passwordHash=${createdUser?.passwordHash}`
+            );
+
         } else {
             record('SKIP phần còn lại của mục 5', false, 'Tạo session thất bại, không thể test state machine tiếp');
         }
@@ -862,11 +1081,13 @@ async function main() {
             record(
                 `  -> CÒN ${violations.length} vi phạm cha-con trong DB (có thể là data cũ chưa dọn, ví dụ GOLD) — xem chi tiết bên dưới`,
                 true,
-                violations.map((v) => `${v.assetCode}: ${v.childEmail}(${v.childRebate}/${v.childMarkup}) > cha ${v.parentEmail}(${v.parentRebate}/${v.parentMarkup})`).join(' | ')
+                violations.map((v) => `${v.assetCode}: ${v.childEmail} total=${v.childTotal}(${v.childRebate}/${v.childMarkup}) > cha ${v.parentEmail} total=${v.parentTotal}(${v.parentRebate}/${v.parentMarkup})`).join(' | ')
             );
         }
 
         // Sanity-check cấu trúc từng phần tử (nếu có), đảm bảo response không bị đổi shape
+        // [SUA — theo phuong an A total-based]: violatesRebate/violatesMarkup (per-field) da
+        // bi thay bang childTotal/parentTotal/violatesTotal, dung 1 dieu kien tong duy nhat.
         if (violations.length > 0) {
             const sample = violations[0];
             const hasExpectedShape =
@@ -875,14 +1096,28 @@ async function main() {
                 typeof sample.parentEmail === 'string' &&
                 typeof sample.childRebate === 'number' &&
                 typeof sample.parentRebate === 'number' &&
-                typeof sample.violatesRebate === 'boolean' &&
-                typeof sample.violatesMarkup === 'boolean';
+                typeof sample.childTotal === 'number' &&
+                typeof sample.parentTotal === 'number' &&
+                typeof sample.violatesTotal === 'boolean';
             record(
                 '  -> shape của violation object đúng field mong đợi',
                 hasExpectedShape,
                 JSON.stringify(sample).slice(0, 200)
             );
         }
+
+        // [MOI] Case cụ thể của chính test-flow-check này (mib rebate=3/markup=17 total=20,
+        // lv1-a rebate=10/markup=5 total=15, lv1-b rebate=5/markup=5 total=10): với total-based,
+        // 15<=20 và 10<=20 đều HỢP LỆ -> KHÔNG được xuất hiện trong danh sách violations nữa
+        // (trước đây per-field báo sai vì 10>3 và 5>3). Đây chính là false-positive đã sửa.
+        const stillFalsePositive = violations.some(
+            (v) => v.childEmail === lv1a.email || v.childEmail === lv1b.email,
+        );
+        record(
+            '  -> lv1-a/lv1-b (mix-change case của chính test này) KHÔNG còn bị báo vi phạm sai (total-based)',
+            !stillFalsePositive,
+            `stillFalsePositive=${stillFalsePositive}`
+        );
     }
 
     printSummaryAndExit();

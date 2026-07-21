@@ -220,7 +220,7 @@ export class AdminService {
         orderBy: { createdAt: 'desc' },
       });
     } else {
-      return this.prisma.template.findMany({
+      const templates = await this.prisma.template.findMany({
         select: {
           id: true,
           name: true,
@@ -241,6 +241,15 @@ export class AdminService {
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      // Non-admin: ẩn rebateUnit/markupPips riêng lẻ, thay bằng maxPips = tổng
+      return templates.map((t) => ({
+        ...t,
+        items: t.items.map((item) => {
+          const { rebateUnit, markupPips, ...rest } = item;
+          return { ...rest, maxPips: Number(rebateUnit) + Number(markupPips) };
+        }),
+      }));
     }
   }
 
@@ -372,7 +381,7 @@ export class AdminService {
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
-    return this.prisma.user.create({
+    const user = await this.prisma.user.create({
       data: {
         email: dto.email,
         passwordHash,
@@ -383,5 +392,9 @@ export class AdminService {
         level,
       },
     });
+
+    // Loại passwordHash khỏi response — pattern tương đương toSafeUser() trong UsersService
+    const { passwordHash: _pw, ...safeUser } = user;
+    return safeUser;
   }
 }
