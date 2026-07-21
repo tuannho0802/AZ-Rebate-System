@@ -47,6 +47,15 @@ export class TemplateApplyService {
       throw new ForbiddenException('You can only apply a template to your own direct child');
     }
 
+    const existingLock = await this.prisma.templateLock.findUnique({
+      where: { templateId_userId: { templateId, userId } },
+    });
+    if (existingLock) {
+      throw new ForbiddenException(
+        'Template này đang bị khóa cho user này — cần mở khóa (unlock) trước khi áp dụng',
+      );
+    }
+
     if (template.items.length === 0) {
       throw new BadRequestException('Template has no items to apply');
     }

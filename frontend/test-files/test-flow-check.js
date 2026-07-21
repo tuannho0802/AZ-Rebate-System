@@ -674,6 +674,66 @@ async function main() {
             );
             const hasNoLevelUser = userVisible.body?.length > 0 && userVisible.body.every((t) => t.level === undefined);
             record('  -> non-admin không thấy field level', hasNoLevelUser, `sample.level = ${userVisible.body?.[0]?.level}`);
+
+            // [Enforce Lock ở tầng Apply — chặn bypass] Lock lại lowTemplate cho lv1-b
+            // (đã unlock ở case trước đó trong section này), rồi thử áp dụng — phải
+            // bị chặn dù actor (MIB) đúng là cha trực tiếp hợp lệ.
+            await check(
+                '[Enforce lock] MIB lock lại lowTemplate cho lv1-b (chuẩn bị test chặn apply)',
+                'POST',
+                `/templates/${lowTemplate.id}/lock/${lv1b.id}`,
+                { token: mibToken },
+                [200, 201]
+            );
+
+            await check(
+                '[Enforce lock] MIB áp lowTemplate (đang khóa) cho lv1-b -> phải 403 (không được bypass qua API)',
+                'POST',
+                `/templates/${lowTemplate.id}/apply/${lv1b.id}`,
+                { token: mibToken },
+                403
+            );
+
+            await check(
+                '[Enforce lock] MIB unlock lại lowTemplate cho lv1-b',
+                'POST',
+                `/templates/${lowTemplate.id}/unlock/${lv1b.id}`,
+                { token: mibToken },
+                [200, 201]
+            );
+
+            await check(
+                '[Enforce lock] Sau khi unlock -> MIB áp lowTemplate cho lv1-b -> phải thành công (201)',
+                'POST',
+                `/templates/${lowTemplate.id}/apply/${lv1b.id}`,
+                { token: mibToken },
+                201
+            );
+
+            // Test case bổ sung — Admin cũng bị chặn bởi lock của chính mình
+            await check(
+                '[Enforce lock] Admin lock adminHighTemplate cho MIB (test Admin cũng bị chặn bởi lock của chính mình)',
+                'POST',
+                `/templates/${adminHighTemplate.id}/lock/${mib.id}`,
+                { token: adminToken },
+                [200, 201]
+            );
+
+            await check(
+                '[Enforce lock] Admin áp adminHighTemplate (đang khóa) cho MIB -> phải 403',
+                'POST',
+                `/templates/${adminHighTemplate.id}/apply/${mib.id}`,
+                { token: adminToken },
+                403
+            );
+
+            await check(
+                '[Enforce lock] Admin unlock lại adminHighTemplate cho MIB (dọn dẹp, tránh ảnh hưởng lần chạy sau)',
+                'POST',
+                `/templates/${adminHighTemplate.id}/unlock/${mib.id}`,
+                { token: adminToken },
+                [200, 201]
+            );
         } else {
             record('SKIP mục 7', false, 'Template không tạo được ở bước 1');
         }
