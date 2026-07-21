@@ -223,9 +223,179 @@ export default function AdminTemplatesPage() {
                     {templates.length === 0 && <p className="text-sm text-gray-400 mt-2">Chưa có template nào — tạo ở trên trước.</p>}
                     {users.length === 0 && <p className="text-sm text-gray-400 mt-2">Chưa có user nào.</p>}
                 </div>
+
+                {/* Khóa / Mở khóa Template cho User (Admin) */}
+                <AdminTemplateLockCard users={users} />
             </div>
 
             <TemplateFormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} assets={assets} onSave={handleCreate} isLoading={saving} />
+        </div>
+    );
+}
+
+function AdminTemplateLockCard({ users }: { users: User[] }) {
+    const [targetUserId, setTargetUserId] = useState('');
+    const [lockStatuses, setLockStatuses] = useState<import('../../../lib/api/template').TemplateLockStatus[]>([]);
+    const [loadingStatuses, setLoadingStatuses] = useState(false);
+    const [togglingId, setTogglingId] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const loadStatuses = useCallback(async (userId: string) => {
+        if (!userId) {
+            setLockStatuses([]);
+            return;
+        }
+        setLoadingStatuses(true);
+        setError(null);
+        try {
+            const { getTemplateLockStatus } = await import('../../../lib/api/template');
+            const statuses = await getTemplateLockStatus(userId);
+            setLockStatuses(statuses);
+        } catch (err: any) {
+            setError(err?.body?.message || err?.message || 'Không thể tải trạng thái lock');
+            setLockStatuses([]);
+        } finally {
+            setLoadingStatuses(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (targetUserId) {
+            loadStatuses(targetUserId);
+        } else {
+            setLockStatuses([]);
+            setError(null);
+        }
+    }, [targetUserId, loadStatuses]);
+
+    const handleToggle = async (templateId: string, currentlyLocked: boolean) => {
+        if (!targetUserId) return;
+        setTogglingId(templateId);
+        setError(null);
+        try {
+            const { lockTemplate, unlockTemplate } = await import('../../../lib/api/template');
+            if (currentlyLocked) {
+                await unlockTemplate(templateId, targetUserId);
+            } else {
+                await lockTemplate(templateId, targetUserId);
+            }
+            await loadStatuses(targetUserId);
+        } catch (err: any) {
+            setError(err?.body?.message || err?.message || 'Thao tác thất bại');
+        } finally {
+            setTogglingId(null);
+        }
+    };
+
+    const selectedUser = users.find((u) => u.id === targetUserId);
+    const lockedCount = lockStatuses.filter((t) => t.isLocked).length;
+    const unlockedCount = lockStatuses.filter((t) => !t.isLocked).length;
+
+    return (
+        <div className="bg-white rounded-lg shadow-md p-6 space-y-4">
+            <h2 className="text-xl font-bold">Khóa / Mở khóa Template cho User</h2>
+            <p className="text-sm text-gray-500">
+                Admin có thể xem & quản lý trạng thái khóa template của <strong>bất kỳ User nào (kể cả MIB root)</strong>. Khi bị khóa, user sẽ không thấy template đó để áp dụng.
+            </p>
+
+            <div className="max-w-md">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Chọn User (bất kỳ cấp nào)</label>
+                <SearchableSelect
+                    options={users.map((u) => ({
+                        id: u.id,
+                        label: u.fullName ? `${u.fullName} (${u.email})` : u.email,
+                        sublabel: u.email,
+                        tag: u.role,
+                    }))}
+                    value={targetUserId}
+                    onChange={setTargetUserId}
+                    placeholder="Chọn User..."
+                />
+            </div>
+
+            {targetUserId && loadingStatuses && (
+                <p className="text-sm text-gray-500 py-4">Đang tải trạng thái lock...</p>
+            )}
+
+            {targetUserId && !loadingStatuses && lockStatuses.length === 0 && !error && (
+                <p className="text-sm text-gray-400 py-2">
+                    Không tìm thấy template nào phù hợp level của {selectedUser?.email ?? 'user này'}.
+                </p>
+            )}
+
+            {targetUserId && !loadingStatuses && lockStatuses.length > 0 && (
+                <div className="space-y-4 pt-2">
+                    <div className="flex items-center gap-4 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                        <span className="text-gray-600">
+                            Tổng <strong className="text-gray-900">{lockStatuses.length}</strong> template (Cấp {lockStatuses[0]?.level ?? 0})
+                        </span>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            🔓 {unlockedCount} đang mở
+                        </span>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                            🔒 {lockedCount} đang khóa
+                        </span>
+                    </div>
+
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold">
+                                <tr>
+                                    <th className="px-4 py-3">Tên Template</th>
+                                    <th className="px-4 py-3">Mô tả</th>
+                                    <th className="px-4 py-3">Trạng thái</th>
+                                    <th className="px-4 py-3 text-right">Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {lockStatuses.map((t) => {
+                                    const isToggling = togglingId === t.id;
+                                    return (
+                                        <tr key={t.id} className="hover:bg-gray-50/70">
+                                            <td className="px-4 py-3 font-medium text-gray-900">{t.name}</td>
+                                            <td className="px-4 py-3 text-gray-500 text-sm max-w-[250px] truncate">
+                                                {t.description || <span className="text-gray-300">—</span>}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                {t.isLocked ? (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                                        🔒 Đang khóa
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                                        🔓 Đang mở
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                                <button
+                                                    onClick={() => handleToggle(t.id, t.isLocked)}
+                                                    disabled={isToggling}
+                                                    className={`px-3 py-1.5 rounded text-xs font-medium text-white transition-colors disabled:opacity-50 ${
+                                                        t.isLocked ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                                                    }`}
+                                                >
+                                                    {isToggling
+                                                        ? 'Đang xử lý...'
+                                                        : t.isLocked
+                                                        ? '🔓 Mở khóa'
+                                                        : '🔒 Khóa'}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {error && (
+                <p className="text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
+                    ⚠ {error}
+                </p>
+            )}
         </div>
     );
 }
