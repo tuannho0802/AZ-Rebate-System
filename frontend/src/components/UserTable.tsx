@@ -11,9 +11,11 @@ interface UserTableProps {
   hasMore?: boolean;
   onPrevPage?: () => void;
   onNextPage?: () => void;
+  onEdit?: (user: User) => void;
+  onViewSubtree?: (id: string) => void;
 }
 
-export default function UserTable({ users, loading, currentPage, hasMore, onPrevPage, onNextPage }: UserTableProps) {
+export default function UserTable({ users, loading, currentPage, hasMore, onPrevPage, onNextPage, onEdit, onViewSubtree }: UserTableProps) {
   if (loading) return <Loading label="Đang tải danh sách user..." />;
 
   if (users.length === 0) {
@@ -32,6 +34,7 @@ export default function UserTable({ users, loading, currentPage, hasMore, onPrev
             <Th>Vai trò</Th>
             <Th>Trạng thái</Th>
             <Th className="hidden md:table-cell">Cha (parent)</Th>
+            <Th className="text-right">Thao tác</Th>
           </tr>
         </thead>
         <tbody>
@@ -50,6 +53,18 @@ export default function UserTable({ users, loading, currentPage, hasMore, onPrev
                   <IdDisplay id={u.parentId} map={userMap} />
                 ) : (
                   <span className="font-sans text-slate-400 italic">Root</span>
+                )}
+              </Td>
+              <Td className="text-right whitespace-nowrap">
+                {onViewSubtree && (
+                  <Button size="sm" variant="success" onClick={() => onViewSubtree(u.id)} className="mr-2">
+                    Xem Sub-tree
+                  </Button>
+                )}
+                {onEdit && (
+                  <Button size="sm" variant="secondary" onClick={() => onEdit(u)}>
+                    Sửa
+                  </Button>
                 )}
               </Td>
             </tr>

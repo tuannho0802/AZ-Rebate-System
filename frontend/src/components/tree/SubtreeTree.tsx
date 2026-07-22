@@ -80,16 +80,19 @@ export interface SubtreeTreeProps {
   root: TreeSubtreeNode;
   defaultExpandedDepth?: number;
   currentActorId?: string;
+  onEditNode?: (user: User) => void;
 }
 
 function SubtreeTreeNode({
   node,
   defaultExpandedDepth = 1,
   currentActorId,
+  onEditNode,
 }: {
   node: TreeSubtreeNode;
   defaultExpandedDepth?: number;
   currentActorId?: string;
+  onEditNode?: (user: User) => void;
 }) {
   const hasChildren = node.children.length > 0;
   const [isExpanded, setIsExpanded] = useState(
@@ -160,6 +163,20 @@ function SubtreeTreeNode({
             ({node.children.length} con)
           </span>
         )}
+
+        {/* Edit Button */}
+        {onEditNode && userInfo && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditNode(userInfo);
+            }}
+            className="ml-auto text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors px-2 py-0.5 rounded border border-indigo-200/50 hover:bg-indigo-50"
+          >
+            Sửa
+          </button>
+        )}
       </div>
 
       {/* Recursive Children Subtree */}
@@ -171,6 +188,7 @@ function SubtreeTreeNode({
               node={child}
               defaultExpandedDepth={defaultExpandedDepth}
               currentActorId={currentActorId}
+              onEditNode={onEditNode}
             />
           ))}
         </div>
@@ -183,6 +201,7 @@ export default function SubtreeTree({
   root,
   defaultExpandedDepth = 1,
   currentActorId,
+  onEditNode,
 }: SubtreeTreeProps) {
   return (
     <div className="space-y-1 bg-white p-3 border border-slate-200 rounded-xl">
@@ -190,6 +209,7 @@ export default function SubtreeTree({
         node={root}
         defaultExpandedDepth={defaultExpandedDepth}
         currentActorId={currentActorId}
+        onEditNode={onEditNode}
       />
     </div>
   );
