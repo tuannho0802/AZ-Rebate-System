@@ -103,6 +103,9 @@ export class AdminService {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.category !== undefined && { category: dto.category }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        ...(dto.capMaxRebate !== undefined && { capMaxRebate: dto.capMaxRebate }),
+        ...(dto.capMaxMarkup !== undefined && { capMaxMarkup: dto.capMaxMarkup }),
+        ...(dto.capMaxTotal !== undefined && { capMaxTotal: dto.capMaxTotal }),
       },
     });
   }

@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
 import { AssetCategory } from '@prisma/client';
 import { PartialType } from '@nestjs/mapped-types';
 import { CreateAssetDto } from './create-asset.dto';
@@ -27,4 +27,19 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @ApiPropertyOptional({ example: true, description: 'Trạng thái kích hoạt' })
   @IsOptional()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ example: 10, description: 'Cap Max Rebate' })
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @IsOptional()
+  capMaxRebate?: number;
+
+  @ApiPropertyOptional({ example: 5, description: 'Cap Max Markup' })
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @IsOptional()
+  capMaxMarkup?: number;
+
+  @ApiPropertyOptional({ example: 15, description: 'Cap Max Total' })
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @IsOptional()
+  capMaxTotal?: number;
 }
