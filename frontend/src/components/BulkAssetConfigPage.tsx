@@ -7,7 +7,7 @@ import { getConfigChildren, setConfigTotal } from '@/lib/api/commission-config';
 import { Template, listVisibleTemplates } from '@/lib/api/template';
 import { User, listUsers } from '@/lib/api/user';
 import { Asset, listAssets } from '@/lib/api/admin';
-import { Card, Badge, Button, Select, Spinner, EmptyState } from '@/components/ui/primitives';
+import { PageShell, PageBody, Card, Badge, Button, Select, Spinner, EmptyState, Table, Th, Td } from '@/components/ui/primitives';
 import { FormError } from '@/components/ui/Dialog';
 
 interface RowState {
@@ -159,20 +159,17 @@ export default function BulkAssetConfigPage() {
   if (!user || !targetUserId) return null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Cấu hình nhiều Asset</h1>
-          <p className="text-sm text-slate-500">
-            Set MaxPips cho nhiều asset cùng lúc cho tài khoản: {targetUser?.email || '...'}
-          </p>
-        </div>
-        <Button variant="secondary" onClick={() => router.push(`/${rolePath}/config`)}>
-          Quay lại danh sách
-        </Button>
-      </div>
-
-      <Card title="Cấu hình MaxPips hàng loạt" description="Điền cấu hình MaxPips hoặc sao chép giá trị từ template.">
+    <PageShell>
+      <PageBody>
+        <Card
+          title="Cấu hình MaxPips hàng loạt"
+          description={`Set MaxPips cho nhiều asset cùng lúc cho tài khoản: ${targetUser?.email || '...'}`}
+          actions={
+            <Button variant="secondary" onClick={() => router.push(`/${rolePath}/config`)}>
+              Quay lại danh sách
+            </Button>
+          }
+        >
         {templates.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6 pb-6 border-b border-slate-100">
             <span className="text-sm font-medium text-slate-600 shrink-0">Sao chép giá trị từ Template:</span>
@@ -197,54 +194,52 @@ export default function BulkAssetConfigPage() {
         ) : rows.length === 0 ? (
           <EmptyState title="Không có asset nào để hiển thị" />
         ) : (
-          <div className="border border-slate-200 rounded-xl overflow-hidden mt-3 max-w-4xl">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                  <th className="px-4 py-3">Asset</th>
-                  <th className="px-4 py-3">MaxPips (tổng nhận)</th>
-                  <th className="px-4 py-3">Trần của bạn</th>
-                  <th className="px-4 py-3 text-right">Trạng thái</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const label = assets.find((a) => a.id === row.assetId);
-                  return (
-                    <tr key={row.assetId} className="border-t border-slate-100 hover:bg-slate-50/50">
-                      <td className="px-4 py-2.5 font-medium text-slate-800">
-                        {label ? `${label.code} — ${label.name}` : row.assetId}
-                        {row.hadExisting && (
-                          <Badge tone="indigo" className="ml-2">
-                            đã có config
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <input
-                          type="number"
-                          step="0.0001"
-                          min="0"
-                          value={row.transferUnit}
-                          onChange={(e) => updateRow(row.assetId, { transferUnit: e.target.value })}
-                          placeholder="Chưa cấu hình"
-                          className="w-36 px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                        />
-                      </td>
-                      <td className="px-4 py-2.5 text-sm text-slate-400 tabular-nums">
-                        {row.capTotal ?? '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                        {row.status === 'saving' && <Spinner className="text-indigo-500 inline-block" />}
-                        {row.status === 'saved' && <Badge tone="emerald">✓ Đã lưu</Badge>}
-                        {row.status === 'error' && <Badge tone="rose">Lỗi</Badge>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Asset</Th>
+                <Th>MaxPips (tổng nhận)</Th>
+                <Th>Trần của bạn</Th>
+                <Th className="text-right">Trạng thái</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const label = assets.find((a) => a.id === row.assetId);
+                return (
+                  <tr key={row.assetId} className="hover:bg-slate-50/50">
+                    <Td className="font-medium text-slate-800">
+                      {label ? `${label.code} — ${label.name}` : row.assetId}
+                      {row.hadExisting && (
+                        <Badge tone="indigo" className="ml-2">
+                          đã có config
+                        </Badge>
+                      )}
+                    </Td>
+                    <Td>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        value={row.transferUnit}
+                        onChange={(e) => updateRow(row.assetId, { transferUnit: e.target.value })}
+                        placeholder="Chưa cấu hình"
+                        className="w-36 px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                      />
+                    </Td>
+                    <Td mono className="text-slate-400">
+                      {row.capTotal ?? '—'}
+                    </Td>
+                    <Td className="text-right whitespace-nowrap">
+                      {row.status === 'saving' && <Spinner className="text-indigo-500 inline-block" />}
+                      {row.status === 'saved' && <Badge tone="emerald">✓ Đã lưu</Badge>}
+                      {row.status === 'error' && <Badge tone="rose">Lỗi</Badge>}
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
         )}
 
         <div className="flex items-center justify-end gap-3 mt-6 pt-6 border-t border-slate-100">
@@ -255,7 +250,8 @@ export default function BulkAssetConfigPage() {
             {submitting ? 'Đang lưu...' : `Lưu tất cả (${dirtyRows.length} asset)`}
           </Button>
         </div>
-      </Card>
-    </div>
+        </Card>
+      </PageBody>
+    </PageShell>
   );
 }

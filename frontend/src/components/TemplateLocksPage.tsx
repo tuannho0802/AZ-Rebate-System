@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/auth-context';
 import { TemplateLockStatus, getTemplateLockStatus, lockTemplate, unlockTemplate } from '@/lib/api/template';
 import { User, listUsers } from '@/lib/api/user';
-import { Card, Badge, Button, EmptyState, Table, Th, Td, Loading } from '@/components/ui/primitives';
+import { PageShell, PageBody, Card, Badge, Button, EmptyState, Table, Th, Td, Loading } from '@/components/ui/primitives';
 import { FormError } from '@/components/ui/Dialog';
 import { LevelBadge } from '@/components/ui/LevelBadge';
 
@@ -84,13 +84,9 @@ export default function TemplateLocksPage() {
   if (!user || user.type === 'admin') return null;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Template Locks</h1>
-        <p className="text-sm text-slate-500">Khóa hoặc mở khóa template hoa hồng cho con trực tiếp của bạn.</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+    <PageShell>
+      <PageBody>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         {/* Left column: Overview Direct Children List */}
         <div className="lg:col-span-1">
           <Card title="Danh sách con trực tiếp" description="Bấm chọn một user để cấu hình khóa template.">
@@ -180,7 +176,8 @@ export default function TemplateLocksPage() {
             )}
           </Card>
         </div>
-      </div>
-    </div>
+        </div>
+      </PageBody>
+    </PageShell>
   );
 }

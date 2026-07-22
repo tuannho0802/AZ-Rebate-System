@@ -10,7 +10,7 @@ import { PageShell, PageBody, Card, Button, Field, Input } from '../../../compon
 import SearchableSelect from '../../../components/ui/SearchableSelect';
 
 export default function AdminUsersPage() {
-  const { user, logout, isLoading } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [hasMore, setHasMore] = useState(false);

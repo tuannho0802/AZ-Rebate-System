@@ -18,6 +18,19 @@ import {
 import TemplateTable from '../../../components/TemplateTable';
 import TemplateFormDialog from '../../../components/TemplateFormDialog';
 import SearchableSelect from '../../../components/ui/SearchableSelect';
+import {
+    PageShell,
+    PageBody,
+    Card,
+    Button,
+    Field,
+    Loading,
+    Badge,
+    Table,
+    Th,
+    Td,
+} from '../../../components/ui/primitives';
+import { FormError } from '../../../components/ui/Dialog';
 
 export default function AdminTemplatesPage() {
     const { user, isLoading } = useAuth();
@@ -145,40 +158,35 @@ export default function AdminTemplatesPage() {
     if (!user || user.type !== 'admin') return null;
 
     return (
-        <div className="min-h-screen bg-gray-50">
-
-
-            <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-                <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-bold">Template List</h2>
-                    <button onClick={() => setDialogOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                        + Tạo Template mới
-                    </button>
-                </div>
-
-                {loadingList ? (
-                    <div className="bg-white rounded-lg shadow-md p-6 text-center text-gray-500">Đang tải...</div>
-                ) : (
-                    <TemplateTable
-                        templates={templates}
-                        onEditDescription={handleEditDescription}
-                        onDeleteTemplate={handleDelete}
-                        onUpdateItem={handleUpdateItem}
-                    />
-                )}
+        <PageShell>
+            <PageBody>
+                <Card
+                    title="Template List"
+                    description={`${templates.length} template trong hệ thống`}
+                    actions={
+                        <Button onClick={() => setDialogOpen(true)}>+ Tạo Template mới</Button>
+                    }
+                >
+                    {loadingList ? (
+                        <Loading label="Đang tải danh sách template..." />
+                    ) : (
+                        <TemplateTable
+                            templates={templates}
+                            onEditDescription={handleEditDescription}
+                            onDeleteTemplate={handleDelete}
+                            onUpdateItem={handleUpdateItem}
+                        />
+                    )}
+                </Card>
 
                 {/* Áp dụng Template — dời từ tab "Commission Configs" của /admin sang đây,
-            vì đây là hành động gắn liền với Template, không phải Commission Config. */}
-                <div className="bg-white rounded-lg shadow-md p-6">
-                    <h2 className="text-xl font-bold mb-4">Áp dụng Template</h2>
-                    <p className="text-sm text-gray-500 mb-4">
-                        Admin có thể áp Template cho <strong>bất kỳ user nào, kể cả MIB (root)</strong> — không bị chặn
-                        bởi cap/orphan check (chỉ áp dụng khi MIB/IB tự áp cho con trực tiếp của họ). Dùng để mồi config
-                        gốc cho MIB trước, để MIB sau đó tự áp Template được cho con của mình.
-                    </p>
-                    <div className="grid grid-cols-3 gap-4 items-end">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Template</label>
+                    vì đây là hành động gắn liền với Template, không phải Commission Config. */}
+                <Card
+                    title="Áp dụng Template"
+                    description="Admin có thể áp Template cho bất kỳ user nào, kể cả MIB (root) — không bị chặn bởi cap/orphan check. Dùng để mồi config gốc cho MIB trước."
+                >
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        <Field label="Template" required>
                             <SearchableSelect
                                 options={templates.map((t) => ({
                                     id: t.id,
@@ -190,9 +198,8 @@ export default function AdminTemplatesPage() {
                                 onChange={(val) => setApplyForm({ ...applyForm, templateId: val })}
                                 placeholder="Chọn Template..."
                             />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">User (bất kỳ cấp nào)</label>
+                        </Field>
+                        <Field label="User (bất kỳ cấp nào)" required>
                             <SearchableSelect
                                 options={users.map((u) => ({
                                     id: u.id,
@@ -204,25 +211,27 @@ export default function AdminTemplatesPage() {
                                 onChange={(val) => setApplyForm({ ...applyForm, userId: val })}
                                 placeholder="Chọn User..."
                             />
+                        </Field>
+                        <div className="flex justify-end">
+                            <Button
+                                onClick={handleApply}
+                                disabled={applying}
+                                variant="success"
+                            >
+                                {applying ? 'Đang áp dụng...' : 'Áp dụng Template'}
+                            </Button>
                         </div>
-                        <button
-                            onClick={handleApply}
-                            disabled={applying}
-                            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50"
-                        >
-                            {applying ? 'Đang áp dụng...' : 'Áp dụng Template'}
-                        </button>
                     </div>
-                    {templates.length === 0 && <p className="text-sm text-gray-400 mt-2">Chưa có template nào — tạo ở trên trước.</p>}
-                    {users.length === 0 && <p className="text-sm text-gray-400 mt-2">Chưa có user nào.</p>}
-                </div>
+                    {templates.length === 0 && <p className="text-sm text-slate-400 mt-2">Chưa có template nào — tạo ở trên trước.</p>}
+                    {users.length === 0 && <p className="text-sm text-slate-400 mt-2">Chưa có user nào.</p>}
+                </Card>
 
                 {/* Khóa / Mở khóa Template cho User (Admin) */}
                 <AdminTemplateLockCard users={users} />
-            </div>
+            </PageBody>
 
             <TemplateFormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} assets={assets} onSave={handleCreate} isLoading={saving} />
-        </div>
+        </PageShell>
     );
 }
 
@@ -285,110 +294,94 @@ function AdminTemplateLockCard({ users }: { users: User[] }) {
     const unlockedCount = lockStatuses.filter((t) => !t.isLocked).length;
 
     return (
-        <div className="bg-white rounded-lg shadow-md p-6 space-y-4">
-            <h2 className="text-xl font-bold">Khóa / Mở khóa Template cho User</h2>
-            <p className="text-sm text-gray-500">
-                Admin có thể xem & quản lý trạng thái khóa template của <strong>bất kỳ User nào (kể cả MIB root)</strong>. Khi bị khóa, user sẽ không thấy template đó để áp dụng.
-            </p>
-
+        <Card
+            title="Khóa / Mở khóa Template cho User"
+            description="Admin có thể xem & quản lý trạng thái khóa template của bất kỳ User nào (kể cả MIB root). Khi bị khóa, user sẽ không thấy template đó để áp dụng."
+        >
             <div className="max-w-md">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Chọn User (bất kỳ cấp nào)</label>
-                <SearchableSelect
-                    options={users.map((u) => ({
-                        id: u.id,
-                        label: u.fullName ? `${u.fullName} (${u.email})` : u.email,
-                        sublabel: u.email,
-                        tag: u.role,
-                    }))}
-                    value={targetUserId}
-                    onChange={setTargetUserId}
-                    placeholder="Chọn User..."
-                />
+                <Field label="Chọn User (bất kỳ cấp nào)">
+                    <SearchableSelect
+                        options={users.map((u) => ({
+                            id: u.id,
+                            label: u.fullName ? `${u.fullName} (${u.email})` : u.email,
+                            sublabel: u.email,
+                            tag: u.role,
+                        }))}
+                        value={targetUserId}
+                        onChange={setTargetUserId}
+                        placeholder="Chọn User..."
+                    />
+                </Field>
             </div>
 
             {targetUserId && loadingStatuses && (
-                <p className="text-sm text-gray-500 py-4">Đang tải trạng thái lock...</p>
+                <Loading label="Đang tải trạng thái lock..." />
             )}
 
             {targetUserId && !loadingStatuses && lockStatuses.length === 0 && !error && (
-                <p className="text-sm text-gray-400 py-2">
+                <p className="text-sm text-slate-400 py-2">
                     Không tìm thấy template nào phù hợp level của {selectedUser?.email ?? 'user này'}.
                 </p>
             )}
 
             {targetUserId && !loadingStatuses && lockStatuses.length > 0 && (
                 <div className="space-y-4 pt-2">
-                    <div className="flex items-center gap-4 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm">
-                        <span className="text-gray-600">
-                            Tổng <strong className="text-gray-900">{lockStatuses.length}</strong> template (Cấp {lockStatuses[0]?.level ?? 0})
+                    <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm">
+                        <span className="text-slate-600">
+                            Tổng <strong className="text-slate-900">{lockStatuses.length}</strong> template (Cấp {lockStatuses[0]?.level ?? 0})
                         </span>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            🔓 {unlockedCount} đang mở
-                        </span>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            🔒 {lockedCount} đang khóa
-                        </span>
+                        <Badge tone="emerald">🔓 {unlockedCount} đang mở</Badge>
+                        <Badge tone="slate">🔒 {lockedCount} đang khóa</Badge>
                     </div>
 
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold">
-                                <tr>
-                                    <th className="px-4 py-3">Tên Template</th>
-                                    <th className="px-4 py-3">Mô tả</th>
-                                    <th className="px-4 py-3">Trạng thái</th>
-                                    <th className="px-4 py-3 text-right">Thao tác</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {lockStatuses.map((t) => {
-                                    const isToggling = togglingId === t.id;
-                                    return (
-                                        <tr key={t.id} className="hover:bg-gray-50/70">
-                                            <td className="px-4 py-3 font-medium text-gray-900">{t.name}</td>
-                                            <td className="px-4 py-3 text-gray-500 text-sm max-w-[250px] truncate">
-                                                {t.description || <span className="text-gray-300">—</span>}
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                {t.isLocked ? (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                                                        🔒 Đang khóa
-                                                    </span>
-                                                ) : (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                                                        🔓 Đang mở
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3 text-right">
-                                                <button
-                                                    onClick={() => handleToggle(t.id, t.isLocked)}
-                                                    disabled={isToggling}
-                                                    className={`px-3 py-1.5 rounded text-xs font-medium text-white transition-colors disabled:opacity-50 ${
-                                                        t.isLocked ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
-                                                    }`}
-                                                >
-                                                    {isToggling
-                                                        ? 'Đang xử lý...'
-                                                        : t.isLocked
-                                                        ? '🔓 Mở khóa'
-                                                        : '🔒 Khóa'}
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
+                    <Table>
+                        <thead>
+                            <tr>
+                                <Th>Tên Template</Th>
+                                <Th>Mô tả</Th>
+                                <Th>Trạng thái</Th>
+                                <Th className="text-right">Thao tác</Th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {lockStatuses.map((t) => {
+                                const isToggling = togglingId === t.id;
+                                return (
+                                    <tr key={t.id} className="hover:bg-slate-50/70">
+                                        <Td className="font-medium text-slate-900">{t.name}</Td>
+                                        <Td className="text-slate-500 max-w-[250px] truncate">
+                                            {t.description || <span className="text-slate-300">—</span>}
+                                        </Td>
+                                        <Td>
+                                            {t.isLocked ? (
+                                                <Badge tone="rose">🔒 Đang khóa</Badge>
+                                            ) : (
+                                                <Badge tone="emerald">🔓 Đang mở</Badge>
+                                            )}
+                                        </Td>
+                                        <Td className="text-right">
+                                            <Button
+                                                size="sm"
+                                                variant={t.isLocked ? 'success' : 'danger'}
+                                                onClick={() => handleToggle(t.id, t.isLocked)}
+                                                disabled={isToggling}
+                                            >
+                                                {isToggling
+                                                    ? 'Đang xử lý...'
+                                                    : t.isLocked
+                                                    ? '🔓 Mở khóa'
+                                                    : '🔒 Khóa'}
+                                            </Button>
+                                        </Td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </Table>
                 </div>
             )}
 
-            {error && (
-                <p className="text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
-                    ⚠ {error}
-                </p>
-            )}
-        </div>
+            <FormError>{error}</FormError>
+        </Card>
     );
 }

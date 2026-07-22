@@ -12,7 +12,7 @@ import {
   CommissionConfigSelf,
   CommissionConfigChild,
 } from '@/lib/api/commission-config';
-import { Card, Field, Input, Select, Button, Badge } from '@/components/ui/primitives';
+import { PageShell, PageBody, Card, Field, Input, Select, Button, Badge } from '@/components/ui/primitives';
 import { FormError } from '@/components/ui/Dialog';
 
 export default function UserDetailPage() {
@@ -157,28 +157,27 @@ export default function UserDetailPage() {
   if (!user || !targetUserId) return null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Chi tiết tài khoản con</h1>
-          <p className="text-sm text-slate-500">Xem và cấu hình thông tin cho: {targetUser?.email || '...'}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => router.push(`/${rolePath}/config/${targetUserId}/assets`)}>
-            Cấu hình nhiều Asset
-          </Button>
-          <Button variant="secondary" onClick={() => router.push(`/${rolePath}/config`)}>
-            Quay lại danh sách
-          </Button>
-        </div>
-      </div>
-
-      {loadingUser ? (
-        <div className="py-8 text-center text-sm text-slate-400">Đang tải thông tin tài khoản...</div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Section: Sửa Tài Khoản */}
-          <Card title="Thông tin tài khoản" description="Cập nhật họ tên hoặc trạng thái kích hoạt của tài khoản con.">
+    <PageShell>
+      <PageBody>
+        {loadingUser ? (
+          <div className="py-8 text-center text-sm text-slate-400">Đang tải thông tin tài khoản...</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Section: Sửa Tài Khoản */}
+            <Card
+              title="Thông tin tài khoản"
+              description={`Xem và cấu hình thông tin cho: ${targetUser?.email || '...'}`}
+              actions={
+                <>
+                  <Button variant="secondary" onClick={() => router.push(`/${rolePath}/config/${targetUserId}/assets`)}>
+                    Cấu hình nhiều Asset
+                  </Button>
+                  <Button variant="secondary" onClick={() => router.push(`/${rolePath}/config`)}>
+                    Quay lại danh sách
+                  </Button>
+                </>
+              }
+            >
             <form onSubmit={handleSaveAccount} className="space-y-4">
               <Field label="Email">
                 <Input value={targetUser?.email || ''} readOnly disabled />
@@ -267,6 +266,7 @@ export default function UserDetailPage() {
           </Card>
         </div>
       )}
-    </div>
+      </PageBody>
+    </PageShell>
   );
 }

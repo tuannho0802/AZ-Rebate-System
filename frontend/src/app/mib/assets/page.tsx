@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/auth-context';
 import { listAssets, Asset } from '@/lib/api/admin';
 import { getMySummary, MyAssetSummary } from '@/lib/api/commission-config';
-import { Card, Table, Th, Td, Badge, EmptyState } from '@/components/ui/primitives';
+import { PageShell, PageBody, Card, Table, Th, Td, Badge, EmptyState } from '@/components/ui/primitives';
 
 const categoryTone: Record<string, 'amber' | 'indigo' | 'teal' | 'blue' | 'slate' | 'violet'> = {
   FOREX: 'blue',
@@ -59,13 +59,9 @@ export default function MibAssetsPage() {
   if (!user || user.type === 'admin') return null;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Assets View</h1>
-        <p className="text-sm text-slate-500">Danh sách sản phẩm giao dịch và Rebate của bạn.</p>
-      </div>
-
-      <Card title="Danh sách Asset" description="Xem thông tin chi tiết các loại sản phẩm giao dịch và hoa hồng tổng nhận của bạn.">
+    <PageShell>
+      <PageBody>
+        <Card title="Danh sách Asset" description="Xem thông tin chi tiết các loại sản phẩm giao dịch và hoa hồng tổng nhận của bạn.">
         {loading ? (
           <div className="py-8 text-center text-sm text-slate-400">Đang tải danh sách asset & hoa hồng...</div>
         ) : assets.length === 0 ? (
@@ -109,7 +105,8 @@ export default function MibAssetsPage() {
             </tbody>
           </Table>
         )}
-      </Card>
-    </div>
+        </Card>
+      </PageBody>
+    </PageShell>
   );
 }

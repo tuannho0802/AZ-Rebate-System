@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/auth-context';
 import { IntegrityViolation, listIntegrityViolations } from '../../../lib/api/integrity';
 import IntegrityCheckPanel from '../../../components/IntegrityCheckPanel';
+import { PageShell, PageBody, Card } from '../../../components/ui/primitives';
 
 export default function AdminIntegrityCheckPage() {
     const { user, isLoading } = useAuth();
@@ -42,12 +43,12 @@ export default function AdminIntegrityCheckPage() {
     if (!user || user.type !== 'admin') return null;
 
     return (
-        <div className="min-h-screen bg-gray-50">
-
-
-            <div className="max-w-7xl mx-auto px-6 py-8">
-                <IntegrityCheckPanel violations={violations} loading={loadingList} onRefresh={fetchViolations} />
-            </div>
-        </div>
+        <PageShell>
+            <PageBody>
+                <Card title="Integrity Check" description="Quét vi phạm quy tắc 'con ≤ cha' giữa các cặp cha-con trong hệ thống.">
+                    <IntegrityCheckPanel violations={violations} loading={loadingList} onRefresh={fetchViolations} />
+                </Card>
+            </PageBody>
+        </PageShell>
     );
 }

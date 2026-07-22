@@ -15,7 +15,7 @@ import {
 import SubtreeTree, { buildSubtreeHierarchy } from '../../../components/tree/SubtreeTree';
 
 export default function MibTreePage() {
-  const { user, logout, isLoading } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
 
   const [userList, setUserList] = useState<User[]>([]);
@@ -63,15 +63,9 @@ export default function MibTreePage() {
   if (!user || user.type === 'admin' || user.role !== 'MIB') return null;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Cây con cháu (Subtree)</h1>
-        <p className="text-sm text-slate-500">
-          Xem toàn bộ sơ đồ hình cây của các con cháu cấp dưới (view-only). Bấm vào một user để tải và hiển thị sơ đồ.
-        </p>
-      </div>
-
-      <Card title="Chọn User để xem cây con cháu" description="Danh sách các tài khoản cấp dưới của bạn.">
+    <PageShell>
+      <PageBody>
+        <Card title="Cây con cháu (Subtree)" description="Xem toàn bộ sơ đồ hình cây của các con cháu cấp dưới (view-only). Bấm vào một user để tải và hiển thị sơ đồ.">
         {userList.length === 0 ? (
           <Loading label="Đang tải danh sách user..." />
         ) : (
@@ -115,7 +109,8 @@ export default function MibTreePage() {
         {!loadingSubtree && subtree.length === 0 && subtreeRoot && (
           <EmptyState title="User này chưa có con" />
         )}
-      </Card>
-    </div>
+        </Card>
+      </PageBody>
+    </PageShell>
   );
 }
