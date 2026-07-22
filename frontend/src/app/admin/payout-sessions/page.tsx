@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '../../../context/auth-context';
+import { useAuth } from '@/context/auth-context';
 import {
   PayoutSession,
   LedgerEntry,
@@ -11,11 +11,23 @@ import {
   lockSession,
   completeSession,
   getSession,
-} from '../../../lib/api/payout-session';
-import { listUsers, User } from '../../../lib/api/user';
-import { listAssets, Asset } from '../../../lib/api/admin';
-import SearchableSelect from '../../../components/ui/SearchableSelect';
-import { IdDisplay, buildUserMap, buildAssetMap } from '../../../components/ui/IdDisplay';
+} from '@/lib/api/payout-session';
+import { listUsers, User } from '@/lib/api/user';
+import { listAssets, Asset } from '@/lib/api/admin';
+import SearchableSelect from '@/components/ui/SearchableSelect';
+import { IdDisplay, buildUserMap, buildAssetMap } from '@/components/ui/IdDisplay';
+import {
+  Card,
+  Button,
+  Field,
+  Input,
+  Table,
+  Th,
+  Td,
+  Badge,
+  EmptyState,
+} from '@/components/ui/primitives';
+import { FormError } from '@/components/ui/Dialog';
 
 export default function AdminPayoutSessionsPage() {
   const { user, logout, isLoading } = useAuth();
@@ -33,6 +45,9 @@ export default function AdminPayoutSessionsPage() {
     sourceUserId: '',
     assetId: '',
   });
+  const [formLoading, setFormLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -45,6 +60,10 @@ export default function AdminPayoutSessionsPage() {
     }
   }, [user, isLoading, router]);
 
+  const loadSessionsList = () => {
+    listSessions().then((data) => setSessions(data)).catch(console.error);
+  };
+
   useEffect(() => {
     if (isLoading || !user || user.type !== 'admin') return;
     Promise.all([
@@ -56,35 +75,49 @@ export default function AdminPayoutSessionsPage() {
 
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newSession.sourceUserId || !newSession.assetId) {
+      setFormError('Vui lòng điền đầy đủ Source User và Asset.');
+      return;
+    }
+    setFormLoading(true);
+    setFormError(null);
     try {
       const created = await createSession(newSession);
       setSessions([...sessions, created]);
       setNewSession({ name: '', note: '', baseVolume: 0, sourceUserId: '', assetId: '' });
       alert('Payout session created successfully!');
     } catch (error: any) {
-      alert(`Failed to create session: ${error.message}`);
+      setFormError(error?.body?.message || error.message || 'Lỗi tạo payout session');
+    } finally {
+      setFormLoading(false);
     }
   };
 
   const handleLock = async (id: string) => {
+    setActionLoading(true);
     try {
       await lockSession(id);
-      setSessions(sessions.map((s) => (s.id === id ? { ...s, status: 'LOCKED' } : s)));
-      loadSessionDetails(id);
+      loadSessionsList();
+      await loadSessionDetails(id);
       alert('Session locked successfully!');
     } catch (error: any) {
       alert(`Failed to lock: ${error.message}`);
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const handleComplete = async (id: string) => {
+    setActionLoading(true);
     try {
       await completeSession(id);
-      setSessions(sessions.map((s) => (s.id === id ? { ...s, status: 'COMPLETED' } : s)));
-      loadSessionDetails(id);
+      loadSessionsList();
+      await loadSessionDetails(id);
       alert('Session completed successfully!');
     } catch (error: any) {
       alert(`Failed to complete: ${error.message}`);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -98,174 +131,243 @@ export default function AdminPayoutSessionsPage() {
     }
   };
 
+  const getStatusBadgeTone = (status: string) => {
+    switch (status) {
+      case 'DRAFT':
+        return 'slate';
+      case 'LOCKED':
+        return 'indigo';
+      case 'COMPLETED':
+        return 'emerald';
+      default:
+        return 'slate';
+    }
+  };
+
+  const userMap = buildUserMap(users);
+  const assetMap = buildAssetMap(assets);
+
   if (isLoading) return null;
   if (!user || user.type !== 'admin') return null;
 
   return (
-    <div className="bg-gray-50">
-      <div className="max-w-7xl mx-auto py-4">
-        {/* Create Session Form */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-bold mb-4">Create New Session</h2>
-          <form onSubmit={handleCreateSession} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <input
+    <div className="space-y-6">
+      {/* Create Session Form */}
+      <Card title="Tạo Payout Session mới" description="Nhập thông tin giao dịch để bắt đầu quy trình đối chiếu và phân bổ hoa hồng (DRAFT).">
+        <form onSubmit={handleCreateSession} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Tên Session" required>
+              <Input
                 type="text"
-                placeholder="Name"
+                placeholder="Ví dụ: Payout Session Tháng 07/2026"
                 value={newSession.name}
                 onChange={(e) => setNewSession({ ...newSession, name: e.target.value })}
                 required
-                className="px-3 py-2 border rounded"
+                disabled={formLoading}
               />
-              <input
+            </Field>
+            <Field label="Ghi chú (Note)">
+              <Input
                 type="text"
-                placeholder="Note (optional)"
+                placeholder="Thông tin thêm (optional)"
                 value={newSession.note}
                 onChange={(e) => setNewSession({ ...newSession, note: e.target.value })}
-                className="px-3 py-2 border rounded"
+                disabled={formLoading}
               />
-            </div>
-            <div className="grid grid-cols-3 gap-4 items-end">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Base Volume *</label>
-                <input
-                  type="number"
-                  placeholder="Base Volume"
-                  value={newSession.baseVolume}
-                  onChange={(e) => setNewSession({ ...newSession, baseVolume: parseFloat(e.target.value) || 0 })}
-                  min="0"
-                  required
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Source User (Nguồn Volume) *</label>
-                <SearchableSelect
-                  options={users.map((u) => ({
-                    id: u.id,
-                    label: u.fullName ? `${u.fullName} (${u.email})` : u.email,
-                    sublabel: u.email,
-                    tag: u.role,
-                  }))}
-                  value={newSession.sourceUserId}
-                  onChange={(val) => setNewSession({ ...newSession, sourceUserId: val })}
-                  placeholder="Chọn Source User..."
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Asset (Sản phẩm) *</label>
-                <SearchableSelect
-                  options={assets.map((a) => ({
-                    id: a.id,
-                    label: `${a.code} — ${a.name}`,
-                    sublabel: a.category,
-                  }))}
-                  value={newSession.assetId}
-                  onChange={(val) => setNewSession({ ...newSession, assetId: val })}
-                  placeholder="Chọn Asset..."
-                />
-              </div>
-            </div>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              Create Session (DRAFT)
-            </button>
-          </form>
-        </div>
-
-        {/* Sessions List */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-bold mb-4">Sessions List</h2>
-          <div className="space-y-3">
-            {sessions.map((s) => (
-              <div key={s.id} className="border rounded-lg p-4 flex justify-between items-center">
-                <div>
-                  <p className="font-bold">{s.name}</p>
-                  <p className="text-sm text-gray-600">
-                    {s.note || 'No note'} • {s.baseVolume.toLocaleString()} • {s.status}
-                  </p>
-                </div>
-                <button
-                  onClick={() => loadSessionDetails(s.id)}
-                  className="bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-sm"
-                >
-                  View
-                </button>
-              </div>
-            ))}
+            </Field>
           </div>
-        </div>
-
-        {/* Session Details Modal/Panel */}
-        {selectedSession && (
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold mb-4">Session Details: {selectedSession.name}</h2>
-            <div className="mb-4">
-              <p>Name: {selectedSession.name}</p>
-              <p>Note: {selectedSession.note || 'N/A'}</p>
-              <p>Base Volume: {selectedSession.baseVolume.toLocaleString()}</p>
-              <p>Status: {selectedSession.status}</p>
-              <p>Source User: <IdDisplay id={selectedSession.sourceUserId} map={buildUserMap(users)} /></p>
-              <p>Asset: <IdDisplay id={selectedSession.assetId} map={buildAssetMap(assets)} /></p>
-            </div>
-
-            {/* State-based buttons */}
-            {selectedSession.status === 'DRAFT' && (
-              <button
-                onClick={() => handleLock(selectedSession.id)}
-                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-              >
-                Lock (DRAFT → LOCKED)
-              </button>
-            )}
-
-            {selectedSession.status === 'LOCKED' && (
-              <button
-                onClick={() => handleComplete(selectedSession.id)}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              >
-                Complete (LOCKED → COMPLETED)
-              </button>
-            )}
-
-            {(selectedSession.status === 'LOCKED' || selectedSession.status === 'COMPLETED') && (
-              <div className="text-yellow-600 text-sm mt-2">
-                * Session đã khóa hoặc hoàn tất, không thể lock/complete lại.
-              </div>
-            )}
-
-            {/* Ledger Entries Table */}
-            {ledgerEntries.length > 0 && (
-              <div className="mt-6 pt-6 border-t">
-                <h3 className="font-bold mb-2">Ledger Entries</h3>
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="px-4 py-2 text-left">Beneficiary</th>
-                      <th className="px-4 py-2 text-right">Net Rebate</th>
-                      <th className="px-4 py-2 text-right">Net Markup</th>
-                      <th className="px-4 py-2 text-right">Net Transfer</th>
-                      <th className="px-4 py-2 text-right">Calculated</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ledgerEntries.map((entry) => (
-                      <tr key={entry.id} className="border-b">
-                        <td className="px-4 py-2 text-left">
-                          <IdDisplay id={entry.beneficiaryId} map={buildUserMap(users)} />
-                        </td>
-                        <td className="px-4 py-2 text-right">{entry.netRebate.toLocaleString()}</td>
-                        <td className="px-4 py-2 text-right">{entry.netMarkup.toLocaleString()}</td>
-                        <td className="px-4 py-2 text-right">{entry.netTransferUnit.toLocaleString()}</td>
-                        <td className="px-4 py-2 text-right font-medium">{entry.calculatedValue.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <Field label="Khối lượng giao dịch (Base Volume)" required>
+              <Input
+                type="number"
+                placeholder="Volume giao dịch"
+                value={newSession.baseVolume || ''}
+                onChange={(e) => setNewSession({ ...newSession, baseVolume: parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.01"
+                required
+                disabled={formLoading}
+              />
+            </Field>
+            <Field label="Tài khoản nguồn (Source User)" required>
+              <SearchableSelect
+                options={users.map((u) => ({
+                  id: u.id,
+                  label: u.fullName ? `${u.fullName} (${u.email})` : u.email,
+                  sublabel: u.email,
+                  tag: u.role,
+                }))}
+                value={newSession.sourceUserId}
+                onChange={(val) => setNewSession({ ...newSession, sourceUserId: val })}
+                placeholder="Chọn Source User..."
+              />
+            </Field>
+            <Field label="Sản phẩm (Asset)" required>
+              <SearchableSelect
+                options={assets.map((a) => ({
+                  id: a.id,
+                  label: `${a.code} — ${a.name}`,
+                  sublabel: a.category,
+                }))}
+                value={newSession.assetId}
+                onChange={(val) => setNewSession({ ...newSession, assetId: val })}
+                placeholder="Chọn Asset..."
+              />
+            </Field>
           </div>
+          <FormError>{formError}</FormError>
+          <div className="flex justify-end mt-2">
+            <Button type="submit" variant="success" disabled={formLoading}>
+              {formLoading ? 'Đang tạo...' : 'Tạo Session (DRAFT)'}
+            </Button>
+          </div>
+        </form>
+      </Card>
+
+      {/* Sessions List */}
+      <Card title="Danh sách Payout Sessions" description="Tổng hợp tất cả các phiên thanh toán đã tạo.">
+        {sessions.length === 0 ? (
+          <EmptyState icon="💸" title="Chưa có payout session nào" description="Nhập thông tin bên trên để tạo session đầu tiên." />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Tên Session</Th>
+                <Th>Trạng thái</Th>
+                <Th>Khối lượng Base</Th>
+                <Th className="hidden md:table-cell">Ghi chú</Th>
+                <Th className="hidden lg:table-cell">Ngày tạo</Th>
+                <Th className="text-right">Thao tác</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((s) => (
+                <tr key={s.id} className="hover:bg-slate-50/50">
+                  <Td className="font-semibold text-slate-800">{s.name}</Td>
+                  <Td>
+                    <Badge tone={getStatusBadgeTone(s.status)}>{s.status}</Badge>
+                  </Td>
+                  <Td mono className="text-sm font-medium">
+                    {s.baseVolume.toLocaleString()}
+                  </Td>
+                  <Td className="hidden md:table-cell text-slate-500">
+                    {s.note ? s.note : <span className="text-slate-300">—</span>}
+                  </Td>
+                  <Td className="hidden lg:table-cell text-slate-400">
+                    {new Date(s.createdAt).toLocaleDateString('vi-VN')}
+                  </Td>
+                  <Td className="text-right">
+                    <Button size="sm" variant="secondary" onClick={() => loadSessionDetails(s.id)}>
+                      Xem
+                    </Button>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
         )}
-      </div>
+      </Card>
+
+      {/* Session Details Panel */}
+      {selectedSession && (
+        <Card
+          title={`Chi tiết Session: ${selectedSession.name}`}
+          description="Thông tin phân phối chiết khấu và danh sách Ledger Entries liên quan."
+          actions={
+            <div className="flex gap-2">
+              {selectedSession.status === 'DRAFT' && (
+                <Button variant="success" size="sm" onClick={() => handleLock(selectedSession.id)} disabled={actionLoading}>
+                  {actionLoading ? 'Đang khóa...' : 'Khóa Session (DRAFT → LOCKED)'}
+                </Button>
+              )}
+              {selectedSession.status === 'LOCKED' && (
+                <Button variant="primary" size="sm" onClick={() => handleComplete(selectedSession.id)} disabled={actionLoading}>
+                  {actionLoading ? 'Đang hoàn tất...' : 'Hoàn tất Session (LOCKED → COMPLETED)'}
+                </Button>
+              )}
+            </div>
+          }
+        >
+          {/* Key-Value metadata info list */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 border border-slate-200/80 rounded-xl bg-slate-50 p-5 mb-6">
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Tên Phiên</span>
+              <span className="text-sm font-semibold text-slate-800 mt-0.5">{selectedSession.name}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Trạng thái</span>
+              <span className="mt-0.5">
+                <Badge tone={getStatusBadgeTone(selectedSession.status)}>{selectedSession.status}</Badge>
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Khối lượng (Base Volume)</span>
+              <span className="text-sm font-semibold text-slate-800 mt-0.5 mono">{selectedSession.baseVolume.toLocaleString()}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Tài khoản nguồn (Source)</span>
+              <span className="text-sm font-semibold text-slate-800 mt-0.5">
+                <IdDisplay id={selectedSession.sourceUserId} map={userMap} />
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Sản phẩm (Asset)</span>
+              <span className="text-sm font-semibold text-slate-800 mt-0.5">
+                <IdDisplay id={selectedSession.assetId} map={assetMap} />
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Ghi chú</span>
+              <span className="text-sm text-slate-500 mt-0.5">
+                {selectedSession.note ? selectedSession.note : <span className="text-slate-300">—</span>}
+              </span>
+            </div>
+          </div>
+
+          {selectedSession.status !== 'DRAFT' && ledgerEntries.length === 0 && (
+            <EmptyState icon="📊" title="Không có Ledger Entries" description="Không phát hiện dòng hoa hồng kế thừa nào cho phiên này." />
+          )}
+
+          {/* Ledger Entries Table */}
+          {ledgerEntries.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-slate-800">Ledger Entries (Sổ Cái Chi Tiết)</h3>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Người thụ hưởng (Beneficiary)</Th>
+                    <Th className="text-right">Rebate nhận</Th>
+                    <Th className="text-right">Markup nhận</Th>
+                    <Th className="text-right">Transfer Unit</Th>
+                    <Th className="text-right">Thành tiền (Calculated)</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerEntries.map((entry) => (
+                    <tr key={entry.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                      <Td className="font-semibold text-slate-800">
+                        <IdDisplay id={entry.beneficiaryId} map={userMap} />
+                      </Td>
+                      <Td mono className="text-right text-slate-600">
+                        {entry.netRebate.toLocaleString()}
+                      </Td>
+                      <Td mono className="text-right text-slate-600">
+                        {entry.netMarkup.toLocaleString()}
+                      </Td>
+                      <Td mono className="text-right text-slate-600">
+                        {entry.netTransferUnit.toLocaleString()}
+                      </Td>
+                      <Td mono className="text-right font-semibold text-indigo-600 text-sm">
+                        {entry.calculatedValue.toLocaleString()}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

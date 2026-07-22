@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '../../../context/auth-context';
-import { api } from '../../../lib/api-client';
+import { useAuth } from '@/context/auth-context';
+import { api } from '@/lib/api-client';
 import {
   getConfigTree,
   getConfigChildren,
@@ -12,7 +12,20 @@ import {
   CommissionConfigTreeNode,
   CommissionConfigChildrenResponse,
   CommissionConfigChild,
-} from '../../../lib/api/commission-config';
+} from '@/lib/api/commission-config';
+import {
+  Card,
+  Button,
+  Field,
+  Input,
+  Table,
+  Th,
+  Td,
+  Badge,
+  Loading,
+} from '@/components/ui/primitives';
+import { FormError } from '@/components/ui/Dialog';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 interface Asset {
   id: string;
@@ -27,13 +40,6 @@ interface UserOption {
   role: string;
 }
 
-interface UpsertFormState {
-  userId: string;
-  assetId: string;
-  rebateUnit: string;
-  markupPips: string;
-}
-
 interface EditContext {
   userId: string;
   assetId: string;
@@ -42,10 +48,8 @@ interface EditContext {
   assetLabel: string;
 }
 
-const emptyUpsertForm: UpsertFormState = { userId: '', assetId: '', rebateUnit: '', markupPips: '' };
-
 export default function AdminCommissionConfigsPage() {
-  const { user, logout, isLoading } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'tree' | 'children'>('tree');
   const [selectedUserId, setSelectedUserId] = useState<string>('');
@@ -58,11 +62,16 @@ export default function AdminCommissionConfigsPage() {
   const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [loadingLookups, setLoadingLookups] = useState(true);
 
-  const [upsertForm, setUpsertForm] = useState<UpsertFormState>(emptyUpsertForm);
+  // Form State (Single dynamically changing card form)
+  const [formUserId, setFormUserId] = useState('');
+  const [formAssetId, setFormAssetId] = useState('');
+  const [rebateUnit, setRebateUnit] = useState('');
+  const [markupPips, setMarkupPips] = useState('');
+  const [formLoading, setFormLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
+  // Optimistic lock edit context
   const [editContext, setEditContext] = useState<EditContext | null>(null);
-  const [editRebateUnit, setEditRebateUnit] = useState('');
-  const [editMarkupPips, setEditMarkupPips] = useState('');
 
   useEffect(() => {
     if (isLoading) return;
@@ -143,61 +152,70 @@ export default function AdminCommissionConfigsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUserId, selectedAssetId, activeTab]);
 
-  const handleUpsert = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!upsertForm.userId || !upsertForm.assetId) {
-      alert('Vui lòng chọn User và Asset');
-      return;
-    }
-    try {
-      const created = await upsertConfig({
-        userId: upsertForm.userId,
-        assetId: upsertForm.assetId,
-        rebateUnit: parseFloat(upsertForm.rebateUnit) || 0,
-        markupPips: parseFloat(upsertForm.markupPips) || 0,
-      });
-      alert(`Config created/updated successfully! (version hiện tại: ${created.version})`);
-      setUpsertForm(emptyUpsertForm);
-      if (selectedUserId === upsertForm.userId && selectedAssetId === upsertForm.assetId) {
-        activeTab === 'tree' ? loadTree(selectedUserId, selectedAssetId) : loadChildren(selectedUserId, selectedAssetId);
-      }
-    } catch (error: any) {
-      alert(`Failed: ${error.message}`);
-    }
+  const resetForm = () => {
+    setFormUserId('');
+    setFormAssetId('');
+    setRebateUnit('');
+    setMarkupPips('');
+    setEditContext(null);
+    setFormError(null);
   };
 
-  const handleEdit = async (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editContext) return;
-    try {
-      const updated = await updateConfig(editContext.userId, editContext.assetId, {
-        rebateUnit: editRebateUnit ? parseFloat(editRebateUnit) : undefined,
-        markupPips: editMarkupPips ? parseFloat(editMarkupPips) : undefined,
-        version: editContext.version,
-      });
-      alert(`Cập nhật thành công! (version mới: ${updated.version})`);
-      const { userId: doneUserId, assetId: doneAssetId } = editContext;
-      cancelEdit();
-      if (selectedUserId === doneUserId && selectedAssetId === doneAssetId) {
-        activeTab === 'tree' ? loadTree(selectedUserId, selectedAssetId) : loadChildren(selectedUserId, selectedAssetId);
-      }
-    } catch (error: any) {
-      if (error.status === 409) {
-        alert('Dữ liệu đã bị người khác cập nhật. Vui lòng bấm "Sửa" lại trên bảng để lấy dữ liệu mới nhất!');
-        cancelEdit();
-        if (selectedUserId === editContext.userId && selectedAssetId === editContext.assetId) {
+    if (editContext) {
+      // Edit Config Mode
+      setFormLoading(true);
+      setFormError(null);
+      try {
+        const updated = await updateConfig(editContext.userId, editContext.assetId, {
+          rebateUnit: rebateUnit ? parseFloat(rebateUnit) : undefined,
+          markupPips: markupPips ? parseFloat(markupPips) : undefined,
+          version: editContext.version,
+        });
+        alert(`Cập nhật thành công! (version mới: ${updated.version})`);
+        const { userId: doneUserId, assetId: doneAssetId } = editContext;
+        resetForm();
+        if (selectedUserId === doneUserId && selectedAssetId === doneAssetId) {
           activeTab === 'tree' ? loadTree(selectedUserId, selectedAssetId) : loadChildren(selectedUserId, selectedAssetId);
         }
-      } else {
-        alert(`Failed: ${error.message}`);
+      } catch (error: any) {
+        if (error.status === 409) {
+          setFormError('Dữ liệu đã bị người khác cập nhật. Vui lòng bấm "Sửa" lại trên bảng để lấy dữ liệu mới nhất!');
+        } else {
+          setFormError(error?.body?.message || error.message || 'Lỗi cập nhật cấu hình');
+        }
+      } finally {
+        setFormLoading(false);
+      }
+    } else {
+      // Create Config Mode
+      if (!formUserId || !formAssetId) {
+        setFormError('Vui lòng chọn User và Asset');
+        return;
+      }
+      setFormLoading(true);
+      setFormError(null);
+      try {
+        const created = await upsertConfig({
+          userId: formUserId,
+          assetId: formAssetId,
+          rebateUnit: parseFloat(rebateUnit) || 0,
+          markupPips: parseFloat(markupPips) || 0,
+        });
+        alert(`Cấu hình được lưu thành công! (phiên bản: ${created.version})`);
+        const doneUserId = formUserId;
+        const doneAssetId = formAssetId;
+        resetForm();
+        if (selectedUserId === doneUserId && selectedAssetId === doneAssetId) {
+          activeTab === 'tree' ? loadTree(selectedUserId, selectedAssetId) : loadChildren(selectedUserId, selectedAssetId);
+        }
+      } catch (error: any) {
+        setFormError(error?.body?.message || error.message || 'Lỗi lưu cấu hình');
+      } finally {
+        setFormLoading(false);
       }
     }
-  };
-
-  const cancelEdit = () => {
-    setEditContext(null);
-    setEditRebateUnit('');
-    setEditMarkupPips('');
   };
 
   const startEdit = (node: { userId: string; email: string; version: number | null; rebateUnit?: number | null; markupPips?: number | null }) => {
@@ -210,15 +228,20 @@ export default function AdminCommissionConfigsPage() {
       userLabel: node.email,
       assetLabel: asset ? `${asset.code} (${asset.name})` : selectedAssetId,
     });
-    setEditRebateUnit(node.rebateUnit != null ? String(node.rebateUnit) : '');
-    setEditMarkupPips(node.markupPips != null ? String(node.markupPips) : '');
-    document.getElementById('edit-config-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFormUserId(node.userId);
+    setFormAssetId(selectedAssetId);
+    setRebateUnit(node.rebateUnit != null ? String(node.rebateUnit) : '');
+    setMarkupPips(node.markupPips != null ? String(node.markupPips) : '');
+    setFormError(null);
+    document.getElementById('config-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const startCreate = (node: { userId: string; email: string }) => {
     if (!selectedAssetId) return;
-    setUpsertForm({ userId: node.userId, assetId: selectedAssetId, rebateUnit: '', markupPips: '' });
-    document.getElementById('create-config-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    resetForm();
+    setFormUserId(node.userId);
+    setFormAssetId(selectedAssetId);
+    document.getElementById('config-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const userLabel = (u: UserOption) => `${u.role} — ${u.fullName ?? u.email} (${u.email})`;
@@ -227,283 +250,254 @@ export default function AdminCommissionConfigsPage() {
   if (!user || user.type !== 'admin') return null;
 
   return (
-    <div className="bg-gray-50">
-      <div className="max-w-7xl mx-auto py-4">
-        {/* Assets & Users dropdowns */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-bold mb-4">Select Asset & User</h2>
-          {loadingLookups && <p className="text-sm text-gray-500 mb-2">Đang tải danh sách asset/user...</p>}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Asset</label>
-              <select
-                value={selectedAssetId}
-                onChange={(e) => setSelectedAssetId(e.target.value)}
-                className="w-full px-3 py-2 border rounded"
-              >
-                <option value="">-- Select Asset --</option>
-                {assets.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} ({a.name})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">User (gốc để xem tree/children)</label>
-              <select
-                value={selectedUserId}
-                onChange={(e) => setSelectedUserId(e.target.value)}
-                className="w-full px-3 py-2 border rounded"
-              >
-                <option value="">-- Select User --</option>
-                {userOptions.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {userLabel(u)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {!selectedUserId || !selectedAssetId ? (
-            <p className="text-sm text-gray-500 mt-3">Chọn cả Asset và User để tự động load dữ liệu bên dưới.</p>
-          ) : viewLoading ? (
-            <p className="text-sm text-gray-500 mt-3">Đang tải...</p>
-          ) : null}
+    <div className="space-y-6">
+      {/* Selection Card */}
+      <Card title="Cấu hình hoa hồng hệ thống" description="Chọn sản phẩm và tài khoản gốc để hiển thị sơ đồ phân cấp hoa hồng.">
+        {loadingLookups && <p className="text-sm text-slate-400 mb-2">Đang tải danh sách asset/user...</p>}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Sản phẩm (Asset)">
+            <SearchableSelect
+              options={assets.map((a) => ({
+                id: a.id,
+                label: `${a.code} — ${a.name}`,
+                sublabel: a.code,
+              }))}
+              value={selectedAssetId}
+              onChange={setSelectedAssetId}
+              placeholder="Chọn Asset..."
+            />
+          </Field>
+          <Field label="Tài khoản gốc (User)">
+            <SearchableSelect
+              options={userOptions.map((u) => ({
+                id: u.id,
+                label: userLabel(u),
+                sublabel: u.email,
+                tag: u.role,
+              }))}
+              value={selectedUserId}
+              onChange={setSelectedUserId}
+              placeholder="Chọn User..."
+            />
+          </Field>
         </div>
+      </Card>
 
-        {/* Tabs */}
-        <div className="flex space-x-4 mb-6">
-          <button
-            onClick={() => setActiveTab('tree')}
-            className={`px-6 py-2 rounded-lg font-medium ${activeTab === 'tree' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
-          >
-            Full Tree (Admin)
-          </button>
-          <button
-            onClick={() => setActiveTab('children')}
-            className={`px-6 py-2 rounded-lg font-medium ${activeTab === 'children' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
-          >
-            Direct Children
-          </button>
-        </div>
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-slate-200 pb-px">
+        <button
+          onClick={() => setActiveTab('tree')}
+          className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors border-b-2 -mb-px ${
+            activeTab === 'tree'
+              ? 'border-indigo-600 text-indigo-600 bg-white'
+              : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          Cây phân cấp (Full Tree)
+        </button>
+        <button
+          onClick={() => setActiveTab('children')}
+          className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors border-b-2 -mb-px ${
+            activeTab === 'children'
+              ? 'border-indigo-600 text-indigo-600 bg-white'
+              : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          Con trực tiếp (Direct Children)
+        </button>
+      </div>
 
-        {/* Tree View */}
-        {activeTab === 'tree' && treeData && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">Commission Tree for {treeData.email}</h2>
-            <TreeDisplay node={treeData} onEdit={startEdit} onCreate={startCreate} />
-          </div>
-        )}
-
-        {/* Children View */}
-        {activeTab === 'children' && childrenData && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">Self & Direct Children</h2>
-            <div className="border p-4 rounded mb-4 flex justify-between items-center">
-              <div>
-                <h3 className="font-medium">Self Config:</h3>
-                <p>Rebate: {childrenData.self.rebateUnit ?? 'N/A'}</p>
-                <p>Markup: {childrenData.self.markupPips ?? 'N/A'}</p>
-                <p className="text-xs text-gray-400">v{childrenData.self.version ?? '—'}</p>
+      {/* View Data */}
+      {viewLoading ? (
+        <Loading label="Đang tải dữ liệu cấu hình..." />
+      ) : (
+        <>
+          {activeTab === 'tree' && treeData && (
+            <Card title={`Sơ đồ hoa hồng của ${treeData.email}`} description="Hiển thị rebate/markup kế thừa từ cấp trên xuống dưới.">
+              <div className="space-y-1">
+                <TreeDisplay node={treeData} onEdit={startEdit} onCreate={startCreate} />
               </div>
-              {childrenData.self.version != null ? (
-                <button
-                  onClick={() => startEdit(childrenData.self)}
-                  className="bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-sm h-fit"
-                >
-                  Sửa
-                </button>
-              ) : (
-                <button
-                  onClick={() => startCreate(childrenData.self)}
-                  className="bg-green-100 hover:bg-green-200 text-green-800 px-3 py-1 rounded text-sm h-fit"
-                >
-                  + Tạo
-                </button>
-              )}
-            </div>
-            <h3 className="font-medium mb-2">Children:</h3>
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="px-4 py-2 text-left">Email</th>
-                  <th className="px-4 py-2 text-left">Role</th>
-                  <th className="px-4 py-2 text-left">Active</th>
-                  <th className="px-4 py-2 text-left">Rebate</th>
-                  <th className="px-4 py-2 text-left">Markup</th>
-                  <th className="px-4 py-2 text-left"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {childrenData.children.map((c: CommissionConfigChild) => (
-                  <tr key={c.userId} className="border-t">
-                    <td className="px-4 py-2">{c.email}</td>
-                    <td className="px-4 py-2">{c.role}</td>
-                    <td className="px-4 py-2">{c.isActive ? 'Yes' : 'No'}</td>
-                    <td className="px-4 py-2">{c.rebateUnit ?? 'N/A'}</td>
-                    <td className="px-4 py-2">
-                      {c.markupPips ?? 'N/A'} <span className="text-xs text-gray-400">v{c.version ?? '—'}</span>
-                    </td>
-                    <td className="px-4 py-2">
-                      {c.version != null ? (
-                        <button
-                          onClick={() => startEdit(c)}
-                          className="bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-sm"
-                        >
-                          Sửa
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => startCreate(c)}
-                          className="bg-green-100 hover:bg-green-200 text-green-800 px-3 py-1 rounded text-sm"
-                        >
-                          + Tạo
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Create Config Form */}
-        <div id="create-config-form" className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-bold mb-4">Create Config</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Tạo mới config rebate/markup cho 1 cặp User + Asset. Nếu cặp này đã tồn tại, endpoint sẽ upsert
-            (ghi đè) — dùng form "Update Existing Config" bên dưới nếu muốn kiểm tra optimistic lock qua version.
-          </p>
-          <form onSubmit={handleUpsert} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">User</label>
-                <select
-                  value={upsertForm.userId}
-                  onChange={(e) => setUpsertForm({ ...upsertForm, userId: e.target.value })}
-                  required
-                  className="w-full px-3 py-2 border rounded"
-                >
-                  <option value="">-- Select User --</option>
-                  {userOptions.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {userLabel(u)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Asset</label>
-                <select
-                  value={upsertForm.assetId}
-                  onChange={(e) => setUpsertForm({ ...upsertForm, assetId: e.target.value })}
-                  required
-                  className="w-full px-3 py-2 border rounded"
-                >
-                  <option value="">-- Select Asset --</option>
-                  {assets.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.code} ({a.name})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rebate Unit</label>
-                <input
-                  type="number"
-                  value={upsertForm.rebateUnit}
-                  onChange={(e) => setUpsertForm({ ...upsertForm, rebateUnit: e.target.value })}
-                  min="0"
-                  step="0.0001"
-                  required
-                  className="w-full px-3 py-2 border rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Markup Pips</label>
-                <input
-                  type="number"
-                  value={upsertForm.markupPips}
-                  onChange={(e) => setUpsertForm({ ...upsertForm, markupPips: e.target.value })}
-                  min="0"
-                  step="0.0001"
-                  required
-                  className="w-full px-3 py-2 border rounded"
-                />
-              </div>
-            </div>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              Create Config
-            </button>
-          </form>
-        </div>
-
-        {/* Edit Config panel */}
-        <div id="edit-config-form" className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold mb-4">Edit Config</h2>
-
-          {!editContext ? (
-            <p className="text-sm text-gray-500">
-              Chọn 1 dòng trong bảng <strong>Tree</strong> hoặc <strong>Direct Children</strong> ở trên rồi bấm{' '}
-              <strong>"Sửa"</strong> để chỉnh sửa config đã có. Nếu dòng đó chưa có config, bấm{' '}
-              <strong>"+ Tạo"</strong> thay vào đó — form sẽ tự chuyển lên khung Create Config phía trên.
-            </p>
-          ) : (
-            <form onSubmit={handleEdit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded p-3">
-                <div>
-                  <span className="text-gray-500">User: </span>
-                  <span className="font-medium">{editContext.userLabel}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500">Asset: </span>
-                  <span className="font-medium">{editContext.assetLabel}</span>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">New Rebate</label>
-                  <input
-                    type="number"
-                    value={editRebateUnit}
-                    onChange={(e) => setEditRebateUnit(e.target.value)}
-                    min="0"
-                    step="0.0001"
-                    className="w-full px-3 py-2 border rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">New Markup</label>
-                  <input
-                    type="number"
-                    value={editMarkupPips}
-                    onChange={(e) => setEditMarkupPips(e.target.value)}
-                    min="0"
-                    step="0.0001"
-                    className="w-full px-3 py-2 border rounded"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
+            </Card>
           )}
-        </div>
+
+          {activeTab === 'children' && childrenData && (
+            <Card title="Cấu hình tài khoản và con trực tiếp" description="Danh sách chi tiết các tài khoản trực thuộc.">
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/60 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                    Cấu hình của chính bạn (Self)
+                    {childrenData.self.version != null && (
+                      <Badge tone="indigo">v{childrenData.self.version}</Badge>
+                    )}
+                  </h3>
+                  <div className="flex gap-4 mt-1.5 text-xs text-slate-500">
+                    <span>Rebate Unit: <strong className="text-slate-700">{childrenData.self.rebateUnit ?? 'N/A'}</strong></span>
+                    <span>Markup Pips: <strong className="text-slate-700">{childrenData.self.markupPips ?? 'N/A'}</strong></span>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant={childrenData.self.version != null ? 'secondary' : 'success'}
+                  onClick={() =>
+                    childrenData.self.version != null
+                      ? startEdit(childrenData.self)
+                      : startCreate(childrenData.self)
+                  }
+                >
+                  {childrenData.self.version != null ? 'Sửa' : '+ Tạo'}
+                </Button>
+              </div>
+
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Email</Th>
+                    <Th>Vai trò</Th>
+                    <Th>Kích hoạt</Th>
+                    <Th>Rebate Unit</Th>
+                    <Th>Markup Pips</Th>
+                    <Th className="text-right">Thao tác</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {childrenData.children.map((c: CommissionConfigChild) => (
+                    <tr key={c.userId} className="hover:bg-slate-50/50">
+                      <Td className="font-medium text-slate-800">{c.email}</Td>
+                      <Td>
+                        <Badge tone={c.role === 'MIB' ? 'violet' : 'blue'}>{c.role}</Badge>
+                      </Td>
+                      <Td>
+                        {c.isActive ? <Badge tone="emerald">Active</Badge> : <Badge tone="slate">Inactive</Badge>}
+                      </Td>
+                      <Td mono>{c.rebateUnit ?? 'N/A'}</Td>
+                      <Td mono>
+                        {c.markupPips ?? 'N/A'}
+                        {c.version != null && (
+                          <span className="text-[10px] text-slate-400 ml-1.5">(v{c.version})</span>
+                        )}
+                      </Td>
+                      <Td className="text-right">
+                        <Button
+                          size="sm"
+                          variant={c.version != null ? 'secondary' : 'success'}
+                          onClick={() => (c.version != null ? startEdit(c) : startCreate(c))}
+                        >
+                          {c.version != null ? 'Sửa' : '+ Tạo'}
+                        </Button>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* Combined Dynamic Form Card */}
+      <div id="config-form-card">
+        <Card
+          title={editContext ? 'Cập nhật cấu hình hoa hồng' : 'Thiết lập cấu hình mới'}
+          description={
+            editContext
+              ? `Chỉnh sửa cấu hình rebate/markup đã có cho ${editContext.userLabel}.`
+              : 'Tạo mới hoặc ghi đè config rebate/markup cho 1 cặp User + Asset.'
+          }
+          actions={
+            editContext ? (
+              <Button size="sm" variant="ghost" onClick={resetForm} disabled={formLoading}>
+                Hủy chế độ sửa
+              </Button>
+            ) : undefined
+          }
+        >
+          <form onSubmit={handleFormSubmit} className="space-y-4 max-w-2xl">
+            {editContext ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm bg-slate-50 border border-slate-200/60 rounded-xl p-4">
+                <div>
+                  <span className="text-slate-400">Tài khoản con: </span>
+                  <span className="font-semibold text-slate-800">{editContext.userLabel}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400">Sản phẩm: </span>
+                  <span className="font-semibold text-slate-800">{editContext.assetLabel}</span>
+                </div>
+                {editContext.version != null && (
+                  <div className="sm:col-span-2">
+                    <span className="text-slate-400">Mã phiên bản (optimistic lock): </span>
+                    <Badge tone="indigo">Phiên bản {editContext.version}</Badge>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Tài khoản con (User)" required>
+                  <SearchableSelect
+                    options={userOptions.map((u) => ({
+                      id: u.id,
+                      label: userLabel(u),
+                      sublabel: u.email,
+                      tag: u.role,
+                    }))}
+                    value={formUserId}
+                    onChange={setFormUserId}
+                    placeholder="Chọn User..."
+                  />
+                </Field>
+                <Field label="Sản phẩm (Asset)" required>
+                  <SearchableSelect
+                    options={assets.map((a) => ({
+                      id: a.id,
+                      label: `${a.code} — ${a.name}`,
+                      sublabel: a.code,
+                    }))}
+                    value={formAssetId}
+                    onChange={setFormAssetId}
+                    placeholder="Chọn Asset..."
+                  />
+                </Field>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Rebate Unit" required>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  value={rebateUnit}
+                  onChange={(e) => setRebateUnit(e.target.value)}
+                  disabled={formLoading}
+                  required
+                />
+              </Field>
+              <Field label="Markup Pips" required>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  value={markupPips}
+                  onChange={(e) => setMarkupPips(e.target.value)}
+                  disabled={formLoading}
+                  required
+                />
+              </Field>
+            </div>
+
+            <FormError>{formError}</FormError>
+
+            <div className="flex gap-2.5 justify-end mt-2">
+              {editContext && (
+                <Button type="button" variant="secondary" onClick={resetForm} disabled={formLoading}>
+                  Hủy sửa
+                </Button>
+              )}
+              <Button type="submit" variant="success" disabled={formLoading}>
+                {formLoading ? 'Đang lưu...' : editContext ? 'Cập nhật cấu hình' : 'Tạo cấu hình mới'}
+              </Button>
+            </div>
+          </form>
+        </Card>
       </div>
     </div>
   );
@@ -520,30 +514,27 @@ function TreeDisplay({
 }) {
   const hasConfig = node.version != null;
   return (
-    <div className="pl-4 border-l">
-      <div className="py-2 flex justify-between items-center">
+    <div className="pl-4 border-l border-slate-200 mt-2">
+      <div className="py-2.5 px-4 rounded-xl border border-slate-100 bg-white hover:bg-slate-50 flex justify-between items-center gap-4 transition-colors">
         <div>
-          <p className="font-medium">{node.email}</p>
-          <p className="text-sm text-gray-600">
-            Role: {node.role}, Active: {node.isActive ? 'Yes' : 'No'}, Rebate: {node.rebateUnit ?? 'N/A'}, Markup:{' '}
-            {node.markupPips ?? 'N/A'}{' '}
-            <span className="text-xs text-gray-400">v{node.version ?? '—'}</span>
-          </p>
+          <p className="font-semibold text-slate-800 text-sm">{node.email}</p>
+          <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-500">
+            <Badge tone={node.role === 'MIB' ? 'violet' : 'blue'}>{node.role}</Badge>
+            {node.isActive ? <Badge tone="emerald">Active</Badge> : <Badge tone="slate">Inactive</Badge>}
+            <span>Rebate: <strong className="text-slate-700">{node.rebateUnit ?? 'N/A'}</strong></span>
+            <span>Markup: <strong className="text-slate-700">{node.markupPips ?? 'N/A'}</strong></span>
+            {node.version != null && <span className="text-[10px] text-slate-400">(v{node.version})</span>}
+          </div>
         </div>
-        {hasConfig ? (
-          <button onClick={() => onEdit(node)} className="bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-sm">
-            Sửa
-          </button>
-        ) : (
-          <button
-            onClick={() => onCreate(node)}
-            className="bg-green-100 hover:bg-green-200 text-green-800 px-3 py-1 rounded text-sm"
-          >
-            + Tạo
-          </button>
-        )}
+        <Button
+          size="sm"
+          variant={hasConfig ? 'secondary' : 'success'}
+          onClick={() => (hasConfig ? onEdit(node) : onCreate(node))}
+        >
+          {hasConfig ? 'Sửa' : '+ Tạo'}
+        </Button>
       </div>
-      <div>
+      <div className="space-y-1">
         {(node.children ?? []).map((child) => (
           <TreeDisplay key={child.userId} node={child} onEdit={onEdit} onCreate={onCreate} />
         ))}
