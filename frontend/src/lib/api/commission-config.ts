@@ -118,7 +118,19 @@ export interface UpdateCommissionTotalDto {
 // API calls
 // ============================================================================
 
-// Actor phải là chính mình (MIB/IB) hoặc Admin. assetId BẮT BUỘC — thiếu → 400.
+export interface MyAssetSummary {
+    assetId: string;
+    assetCode: string;
+    assetName: string;
+    transferUnit: number;
+    version: number;
+}
+
+// [MOI] MIB/IB xem transferUnit cua chinh minh cho MOI asset trong 1 lan goi.
+export async function getMySummary(): Promise<MyAssetSummary[]> {
+    return api.get<MyAssetSummary[]>('/commission-configs/my-summary');
+}
+
 export async function getConfigTree(userId: string, assetId: string): Promise<CommissionConfigTreeNode> {
     const data = await api.get<CommissionConfigTreeNode>(`/commission-configs/tree/${userId}?assetId=${assetId}`);
     return { ...data, children: data.children ?? [] };

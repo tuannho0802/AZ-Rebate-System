@@ -478,4 +478,28 @@ export class CommissionConfigService {
       }),
     };
   }
+
+  /**
+   * Non-admin (MIB/IB) xem TONG (transferUnit) cua CHINH MINH cho MOI asset dang
+   * co config, trong 1 lan goi — dung cho trang "Assets View". LUON mask breakdown,
+   * chi tra transferUnit — khong bao gio tra rebateUnit/markupPips du actor la ai,
+   * vi endpoint nay chi de MIB/IB tu xem, khong co ly do can breakdown that.
+   * Admin khong co config ca nhan nen khong goi duoc endpoint nay.
+   */
+  async getMySummary(actor: RequestActor) {
+    if (actor.type === 'ADMIN') {
+      throw new ForbiddenException('Admin does not have a personal commission config');
+    }
+    const configs = await this.prisma.userCommissionConfig.findMany({
+      where: { userId: actor.id },
+      include: { asset: true },
+    });
+    return configs.map((c) => ({
+      assetId: c.assetId,
+      assetCode: c.asset.code,
+      assetName: c.asset.name,
+      transferUnit: Number(c.rebateUnit) + Number(c.markupPips),
+      version: c.version,
+    }));
+  }
 }

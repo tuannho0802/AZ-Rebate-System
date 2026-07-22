@@ -51,6 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     setUser(null);
     clearTokenFromCookie();
+    // Redirect immediately to clear all context state and avoid page hangs
+    window.location.href = '/login';
   };
 
   return (

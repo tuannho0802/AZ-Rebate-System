@@ -18,6 +18,15 @@ export interface RequestActor {
 export class CommissionConfigController {
   constructor(private readonly commissionConfigService: CommissionConfigService) { }
 
+  @Get('my-summary')
+  @ApiOperation({ summary: 'My commission summary (all assets)', description: 'MIB/IB xem transferUnit cua chinh minh cho MOI asset trong 1 lan goi, dung cho trang Assets View. Admin goi se bi 403.' })
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Danh sach transferUnit theo tung asset' })
+  @ApiForbiddenResponse({ description: 'Admin khong co config ca nhan' })
+  getMySummary(@CurrentUser() user: RequestActor) {
+    return this.commissionConfigService.getMySummary(user);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Upsert commission config', description: 'Tạo hoặc cập nhật config hoa hồng cho user-asset pair' })
   @ApiBearerAuth('access-token')
