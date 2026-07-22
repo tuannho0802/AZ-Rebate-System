@@ -7,6 +7,7 @@ import { UpdateTemplateDto } from './dto/update-template.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
 import { Role, TemplateType } from '@prisma/client';
+import { maskConfigForActor } from '../common/mask-commission.util';
 
 @Injectable()
 export class AdminService {
@@ -273,7 +274,6 @@ export class AdminService {
           name: true,
           description: true,
           type: true,
-          level: true,
           createdAt: true,
           updatedAt: true,
           createdByAdminId: true,
@@ -302,17 +302,12 @@ export class AdminService {
         orderBy: { createdAt: 'desc' },
       });
 
-      // Non-admin: ẩn rebateUnit/markupPips riêng lẻ, thay bằng maxPips = tổng
+      // Non-admin: ẩn field `level` của template và ẩn rebateUnit/markupPips
+      // riêng lẻ, thay bằng maxPips = tổng.
       return templates.map((t) => ({
         ...t,
-        items: t.items.map((item) => {
-          const { rebateUnit, markupPips, ...rest } = item;
-          return { ...rest, maxPips: Number(rebateUnit) + Number(markupPips) };
-        }),
-        levelConfigs: t.levelConfigs.map((config) => {
-          const { rebateUnit, markupPips, ...rest } = config;
-          return { ...rest, maxPips: Number(rebateUnit) + Number(markupPips) };
-        }),
+        items: t.items.map((item) => maskConfigForActor(item, actor)),
+        levelConfigs: t.levelConfigs.map((config) => maskConfigForActor(config, actor)),
       }));
     }
   }
