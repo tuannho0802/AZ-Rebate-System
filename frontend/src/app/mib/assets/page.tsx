@@ -19,7 +19,7 @@ const categoryTone: Record<string, 'amber' | 'indigo' | 'teal' | 'blue' | 'slate
 };
 
 export default function MibAssetsPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
 
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -27,6 +27,7 @@ export default function MibAssetsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!user) {
       router.push('/login');
       return;
@@ -50,10 +51,11 @@ export default function MibAssetsPage() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [user, router]);
+  }, [user, isLoading, router]);
 
   const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString('vi-VN');
 
+  if (isLoading) return null;
   if (!user || user.type === 'admin') return null;
 
   return (

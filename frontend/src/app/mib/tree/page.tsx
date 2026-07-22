@@ -16,7 +16,7 @@ import {
 import SubtreeTree, { buildSubtreeHierarchy } from '../../../components/tree/SubtreeTree';
 
 export default function MibTreePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading } = useAuth();
   const router = useRouter();
 
   const [userList, setUserList] = useState<User[]>([]);
@@ -25,6 +25,7 @@ export default function MibTreePage() {
   const [loadingSubtree, setLoadingSubtree] = useState(false);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!user) {
       router.push('/login');
       return;
@@ -36,7 +37,7 @@ export default function MibTreePage() {
     if (user.role !== 'MIB') {
       router.push('/ib');
     }
-  }, [user, router]);
+  }, [user, isLoading, router]);
 
   useEffect(() => {
     if (user?.sub) {
@@ -59,6 +60,7 @@ export default function MibTreePage() {
 
   const userById = new Map(userList.map((u) => [u.id, u]));
 
+  if (isLoading) return null;
   if (!user || user.type === 'admin' || user.role !== 'MIB') return null;
 
   return (

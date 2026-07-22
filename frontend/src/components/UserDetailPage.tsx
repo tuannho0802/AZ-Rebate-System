@@ -16,7 +16,7 @@ import { Card, Field, Input, Select, Button, Badge } from '@/components/ui/primi
 import { FormError } from '@/components/ui/Dialog';
 
 export default function UserDetailPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
   const targetUserId = params?.userId as string;
@@ -45,6 +45,7 @@ export default function UserDetailPage() {
 
   // Load user info, verify authorization and load assets
   useEffect(() => {
+    if (isLoading) return;
     if (!user) {
       router.push('/login');
       return;
@@ -152,6 +153,7 @@ export default function UserDetailPage() {
     }
   };
 
+  if (isLoading) return null;
   if (!user || !targetUserId) return null;
 
   return (

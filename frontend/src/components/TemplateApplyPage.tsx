@@ -10,7 +10,7 @@ import { FormError } from '@/components/ui/Dialog';
 import SearchableSelect from '@/components/ui/SearchableSelect';
 
 export default function TemplateApplyPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
 
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -22,6 +22,7 @@ export default function TemplateApplyPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!user) {
       router.push('/login');
       return;
@@ -38,7 +39,7 @@ export default function TemplateApplyPage() {
     listUsers({ parentId: user.sub, limit: 100 })
       .then(setDirectChildren)
       .catch(console.error);
-  }, [user, router]);
+  }, [user, isLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,6 +61,7 @@ export default function TemplateApplyPage() {
     }
   };
 
+  if (isLoading) return null;
   if (!user || user.type === 'admin') return null;
 
   return (

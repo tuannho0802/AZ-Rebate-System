@@ -20,7 +20,7 @@ interface RowState {
 }
 
 export default function BulkAssetConfigPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
   const targetUserId = params?.userId as string;
@@ -36,6 +36,7 @@ export default function BulkAssetConfigPage() {
 
   // Authenticate & load basic lookups
   useEffect(() => {
+    if (isLoading) return;
     if (!user) {
       router.push('/login');
       return;
@@ -59,7 +60,7 @@ export default function BulkAssetConfigPage() {
 
     listAssets().then(setAssets).catch(console.error);
     listVisibleTemplates().then(setTemplates).catch(console.error);
-  }, [user, targetUserId, router]);
+  }, [user, isLoading, targetUserId, router]);
 
   // Load parent cap values & existing configs
   useEffect(() => {
@@ -154,6 +155,7 @@ export default function BulkAssetConfigPage() {
 
   const rolePath = user?.role === 'MIB' ? 'mib' : 'ib';
 
+  if (isLoading) return null;
   if (!user || !targetUserId) return null;
 
   return (

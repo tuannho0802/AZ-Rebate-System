@@ -10,7 +10,7 @@ import { FormError } from '@/components/ui/Dialog';
 import { LevelBadge } from '@/components/ui/LevelBadge';
 
 export default function TemplateLocksPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
 
   const [directChildren, setDirectChildren] = useState<User[]>([]);
@@ -21,6 +21,7 @@ export default function TemplateLocksPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!user) {
       router.push('/login');
       return;
@@ -33,7 +34,7 @@ export default function TemplateLocksPage() {
     listUsers({ parentId: user.sub, limit: 100 })
       .then(setDirectChildren)
       .catch(console.error);
-  }, [user, router]);
+  }, [user, isLoading, router]);
 
   const loadStatuses = useCallback(async (userId: string) => {
     if (!userId) {
@@ -79,6 +80,7 @@ export default function TemplateLocksPage() {
     }
   };
 
+  if (isLoading) return null;
   if (!user || user.type === 'admin') return null;
 
   return (
