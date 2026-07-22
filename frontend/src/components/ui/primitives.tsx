@@ -35,48 +35,7 @@ const roleTheme = {
 export type RoleKind = keyof typeof roleTheme;
 export { roleTheme };
 
-export function TopNav({
-  roleKind,
-  title,
-  subtitle,
-  userEmail,
-  onLogout,
-  right,
-}: {
-  roleKind: RoleKind;
-  title: string;
-  subtitle?: string;
-  userEmail?: string;
-  onLogout: () => void;
-  right?: ReactNode;
-}) {
-  const theme = roleTheme[roleKind];
-  return (
-    <nav className={cx('bg-gradient-to-r text-white', theme.grad)}>
-      <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="h-9 w-9 shrink-0 rounded-lg bg-white/15 flex items-center justify-center font-bold text-sm backdrop-blur-sm">
-            {roleKind === 'admin' ? 'AD' : roleKind}
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold leading-tight truncate">{title}</h1>
-            {subtitle && <p className="text-xs text-white/75 truncate">{subtitle}</p>}
-          </div>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          {right}
-          {userEmail && <span className="hidden sm:block text-sm text-white/85">{userEmail}</span>}
-          <button
-            onClick={onLogout}
-            className="text-sm font-medium bg-white/15 hover:bg-white/25 transition-colors px-3 py-1.5 rounded-md"
-          >
-            Đăng xuất
-          </button>
-        </div>
-      </div>
-    </nav>
-  );
-}
+
 
 export function PageBody({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cx('max-w-7xl mx-auto px-6 py-8 space-y-6', className)}>{children}</div>;

@@ -6,7 +6,6 @@ import { useAuth } from '../../../context/auth-context';
 import { User, SubtreeNode, listUsers, getSubtree } from '../../../lib/api/user';
 import {
   PageShell,
-  TopNav,
   PageBody,
   Card,
   ActiveBadge,

@@ -43,14 +43,7 @@ export default function AdminIntegrityCheckPage() {
 
     return (
         <div className="min-h-screen bg-gray-50">
-            <nav className="bg-blue-600 text-white px-6 py-4">
-                <div className="max-w-7xl mx-auto flex justify-between items-center">
-                    <h1 className="text-2xl font-bold">Rebate System — Integrity Check</h1>
-                    <a href="/admin" className="bg-blue-700 hover:bg-blue-800 px-4 py-2 rounded">
-                        ← Quay lại Admin
-                    </a>
-                </div>
-            </nav>
+
 
             <div className="max-w-7xl mx-auto px-6 py-8">
                 <IntegrityCheckPanel violations={violations} loading={loadingList} onRefresh={fetchViolations} />

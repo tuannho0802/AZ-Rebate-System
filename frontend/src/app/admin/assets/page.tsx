@@ -6,7 +6,7 @@ import { useAuth } from '../../../context/auth-context';
 import { Asset, listAssets, createAsset, updateAsset, deleteAsset } from '../../../lib/api/admin';
 import AssetTable from '../../../components/AssetTable';
 import AssetFormDialog from '../../../components/AssetFormDialog';
-import { PageShell, TopNav, PageBody, Card, Button } from '../../../components/ui/primitives';
+import { PageShell, PageBody, Card, Button } from '../../../components/ui/primitives';
 
 export default function AdminAssetsPage() {
   const { user, logout, isLoading } = useAuth();
@@ -101,8 +101,6 @@ export default function AdminAssetsPage() {
 
   return (
     <PageShell>
-      <TopNav roleKind="admin" title="Asset Management" subtitle="Admin Console" userEmail={user.email} onLogout={logout} />
-
       <PageBody>
         <Card
           title="Danh sách Asset"
@@ -131,3 +129,4 @@ export default function AdminAssetsPage() {
     </PageShell>
   );
 }
+

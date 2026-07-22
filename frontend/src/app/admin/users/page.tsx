@@ -6,7 +6,7 @@ import { useAuth } from '../../../context/auth-context';
 import { User, listUsers, createUser } from '../../../lib/api/user';
 import UserTable from '../../../components/UserTable';
 import UserFormDialog from '../../../components/UserFormDialog';
-import { PageShell, TopNav, PageBody, Card, Button, Field, Input } from '../../../components/ui/primitives';
+import { PageShell, PageBody, Card, Button, Field, Input } from '../../../components/ui/primitives';
 import SearchableSelect from '../../../components/ui/SearchableSelect';
 
 export default function AdminUsersPage() {
@@ -68,7 +68,6 @@ export default function AdminUsersPage() {
 
   return (
     <PageShell>
-      <TopNav roleKind="admin" title="User Management" subtitle="Admin Console" userEmail={user.email} onLogout={logout} />
 
       <PageBody>
         <Card
@@ -124,3 +123,4 @@ export default function AdminUsersPage() {
     </PageShell>
   );
 }
+
