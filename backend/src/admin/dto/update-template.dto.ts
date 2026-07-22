@@ -16,7 +16,10 @@ export class UpdateTemplateDto extends PartialType(CreateTemplateDto) {
   @IsOptional()
   description?: string;
 
-  @ApiPropertyOptional({ type: [TemplateItemDto], description: 'Danh sách mục template mới (replace toàn bộ items cũ)' })
+  @ApiPropertyOptional({
+    type: [TemplateItemDto],
+    description: 'Danh sách mục template kiểu ITEM được upsert theo asset; không dùng cho template LEVEL.',
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => TemplateItemDto)

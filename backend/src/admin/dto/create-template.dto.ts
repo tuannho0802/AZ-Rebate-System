@@ -1,6 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+
+export enum TemplateTypeDto {
+  ITEM = 'ITEM',
+  LEVEL = 'LEVEL',
+}
 
 export class TemplateItemDto {
   @ApiProperty({ example: 'asset-uuid-1', description: 'ID tài sản' })
@@ -30,14 +35,27 @@ export class CreateTemplateDto {
   @IsOptional()
   description?: string;
 
+  @ApiProperty({
+    enum: TemplateTypeDto,
+    example: TemplateTypeDto.ITEM,
+    description: 'Loại template: ITEM = theo asset, LEVEL = theo asset + level',
+  })
+  @IsEnum(TemplateTypeDto)
+  @IsNotEmpty()
+  type: TemplateTypeDto;
+
   @ApiProperty({ example: 0, description: 'Level áp dụng cho template (0 = MIB, 1 = Lv1 IB...)' })
   @IsNumber()
   @IsNotEmpty()
   level: number;
 
-  @ApiProperty({ type: [TemplateItemDto], description: 'Danh sách mục template' })
+  @ApiPropertyOptional({
+    type: [TemplateItemDto],
+    description: 'Danh sách mục template kiểu ITEM. Template kiểu LEVEL không cần field này khi tạo mới.',
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => TemplateItemDto)
-  items: TemplateItemDto[];
+  @IsOptional()
+  items?: TemplateItemDto[];
 }

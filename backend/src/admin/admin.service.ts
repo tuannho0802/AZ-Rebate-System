@@ -6,7 +6,7 @@ import { UpdateAssetDto } from './dto/update-asset.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
-import { Role } from '@prisma/client';
+import { Role, TemplateType } from '@prisma/client';
 
 @Injectable()
 export class AdminService {
@@ -18,9 +18,8 @@ export class AdminService {
       throw new BadRequestException('Asset code already exists');
     }
 
-    // Tạo Asset + đồng bộ TemplateItem cho MỌI Template hiện có trong 1 transaction
-    // duy nhất — đảm bảo bất biến "mọi Template luôn đủ item cho mọi Asset" không
-    // bao giờ bị vi phạm, kể cả khi có lỗi giữa chừng (rollback toàn bộ).
+    // Tạo Asset + đồng bộ TemplateItem CHỈ cho template kiểu ITEM trong 1
+    // transaction duy nhất. Template kiểu LEVEL không có placeholder item theo asset.
     return this.prisma.$transaction(async (tx) => {
       const asset = await tx.asset.create({
         data: {
@@ -29,7 +28,10 @@ export class AdminService {
         },
       });
 
-      const templates = await tx.template.findMany({ select: { id: true } });
+      const templates = await tx.template.findMany({
+        where: { type: TemplateType.ITEM },
+        select: { id: true },
+      });
       if (templates.length > 0) {
         // Asset vừa tạo mới toanh -> chắc chắn chưa có item nào ở bất kỳ Template
         // nào, dùng createMany thẳng, không cần upsert.
@@ -133,21 +135,26 @@ export class AdminService {
           OR: [{ rebateUnit: { not: 0 } }, { markupPips: { not: 0 } }],
         },
       });
+      const templateLevelConfigCount = await tx.templateLevelConfig.count({
+        where: { assetId: id },
+      });
       const ledgerCount = await tx.commissionLedger.count({
         where: { assetId: id },
       });
-      return { configCount, payoutCount, meaningfulTemplateItemCount, ledgerCount };
+      return { configCount, payoutCount, meaningfulTemplateItemCount, templateLevelConfigCount, ledgerCount };
     });
 
     if (
       isUsed.configCount > 0 ||
       isUsed.payoutCount > 0 ||
       isUsed.meaningfulTemplateItemCount > 0 ||
+      isUsed.templateLevelConfigCount > 0 ||
       isUsed.ledgerCount > 0
     ) {
       throw new BadRequestException(
         `Cannot delete asset: referenced by ${isUsed.configCount} configs, ${isUsed.payoutCount} payout sessions, ` +
-        `${isUsed.meaningfulTemplateItemCount} template item(s) with non-zero values, and ${isUsed.ledgerCount} ledger entries`
+        `${isUsed.meaningfulTemplateItemCount} template item(s) with non-zero values, ` +
+        `${isUsed.templateLevelConfigCount} template level config(s), and ${isUsed.ledgerCount} ledger entries`
       );
     }
 
@@ -162,33 +169,58 @@ export class AdminService {
       throw new BadRequestException('Template name already exists');
     }
 
-    // validate if all items have non-negative rebateUnit and markupPips
-    for (const item of dto.items) {
-      if (item.rebateUnit < 0 || item.markupPips < 0) {
-        throw new BadRequestException('rebateUnit and markupPips must be non-negative');
+    if (dto.type === TemplateType.ITEM) {
+      if (!dto.items || dto.items.length === 0) {
+        throw new BadRequestException('Template ITEM phải có ít nhất một item');
       }
+
+      for (const item of dto.items) {
+        if (item.rebateUnit < 0 || item.markupPips < 0) {
+          throw new BadRequestException('rebateUnit and markupPips must be non-negative');
+        }
+      }
+
+      // Đảm bảo Template ITEM mới tạo có đủ item cho MỌI Asset hiện có trong DB.
+      // Asset nào Admin không liệt kê trong dto.items sẽ tự động = 0.
+      const allAssets = await this.prisma.asset.findMany({ select: { id: true } });
+      const providedAssetIds = new Set(dto.items.map((i) => i.assetId));
+      const missingItems = allAssets
+        .filter((a) => !providedAssetIds.has(a.id))
+        .map((a) => ({ assetId: a.id, rebateUnit: 0, markupPips: 0 }));
+
+      return this.prisma.template.create({
+        data: {
+          name: dto.name,
+          description: dto.description,
+          type: dto.type,
+          level: dto.level,
+          createdByAdminId: adminId,
+          items: {
+            create: [...dto.items, ...missingItems],
+          },
+        },
+        include: {
+          items: true,
+          levelConfigs: true,
+        },
+      });
     }
 
-    // Đảm bảo Template mới tạo có đủ item cho MỌI Asset hiện có trong DB.
-    // Asset nào Admin không liệt kê trong dto.items sẽ tự động = 0.
-    const allAssets = await this.prisma.asset.findMany({ select: { id: true } });
-    const providedAssetIds = new Set(dto.items.map((i) => i.assetId));
-    const missingItems = allAssets
-      .filter((a) => !providedAssetIds.has(a.id))
-      .map((a) => ({ assetId: a.id, rebateUnit: 0, markupPips: 0 }));
+    if (dto.items && dto.items.length > 0) {
+      throw new BadRequestException('Template LEVEL không nhận items khi tạo mới');
+    }
 
     return this.prisma.template.create({
       data: {
         name: dto.name,
         description: dto.description,
+        type: dto.type,
         level: dto.level,
         createdByAdminId: adminId,
-        items: {
-          create: [...dto.items, ...missingItems],
-        },
       },
       include: {
         items: true,
+        levelConfigs: true,
       },
     });
   }
@@ -202,6 +234,7 @@ export class AdminService {
           id: true,
           name: true,
           description: true,
+          type: true,
           level: true,
           createdAt: true,
           updatedAt: true,
@@ -216,6 +249,17 @@ export class AdminService {
               asset: true,
             },
           },
+          levelConfigs: {
+            select: {
+              id: true,
+              templateId: true,
+              assetId: true,
+              level: true,
+              rebateUnit: true,
+              markupPips: true,
+              asset: true,
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -225,6 +269,8 @@ export class AdminService {
           id: true,
           name: true,
           description: true,
+          type: true,
+          level: true,
           createdAt: true,
           updatedAt: true,
           createdByAdminId: true,
@@ -233,6 +279,17 @@ export class AdminService {
               id: true,
               templateId: true,
               assetId: true,
+              rebateUnit: true,
+              markupPips: true,
+              asset: true,
+            },
+          },
+          levelConfigs: {
+            select: {
+              id: true,
+              templateId: true,
+              assetId: true,
+              level: true,
               rebateUnit: true,
               markupPips: true,
               asset: true,
@@ -249,6 +306,10 @@ export class AdminService {
           const { rebateUnit, markupPips, ...rest } = item;
           return { ...rest, maxPips: Number(rebateUnit) + Number(markupPips) };
         }),
+        levelConfigs: t.levelConfigs.map((config) => {
+          const { rebateUnit, markupPips, ...rest } = config;
+          return { ...rest, maxPips: Number(rebateUnit) + Number(markupPips) };
+        }),
       }));
     }
   }
@@ -257,6 +318,10 @@ export class AdminService {
     const existing = await this.prisma.template.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException('Template not found');
+    }
+
+    if (dto.type && dto.type !== existing.type) {
+      throw new BadRequestException('Không hỗ trợ đổi type của template đã tồn tại');
     }
 
     // Nếu items được cung cấp: UPSERT từng item được gửi lên, KHÔNG xoá sạch rồi tạo lại
@@ -271,6 +336,10 @@ export class AdminService {
     // nguyên. Asset nào (mới thêm sau khi template đã tồn tại) mà chưa có item nào thì
     // vẫn được bổ sung 0/0 để giữ đúng bất biến "mọi Template đủ item cho mọi Asset".
     if (dto.items !== undefined) {
+      if (existing.type !== TemplateType.ITEM) {
+        throw new BadRequestException('Chỉ template ITEM mới được cập nhật items');
+      }
+
       for (const item of dto.items) {
         if (item.rebateUnit < 0 || item.markupPips < 0) {
           throw new BadRequestException('rebateUnit and markupPips must be non-negative');
@@ -316,9 +385,15 @@ export class AdminService {
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.level !== undefined && { level: dto.level }),
         },
         include: {
           items: {
+            include: {
+              asset: true,
+            },
+          },
+          levelConfigs: {
             include: {
               asset: true,
             },
@@ -333,9 +408,15 @@ export class AdminService {
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.level !== undefined && { level: dto.level }),
       },
       include: {
         items: {
+          include: {
+            asset: true,
+          },
+        },
+        levelConfigs: {
           include: {
             asset: true,
           },

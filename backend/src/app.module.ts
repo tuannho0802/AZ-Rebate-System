@@ -13,6 +13,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { TemplateApplyModule } from './template-apply/template-apply.module';
 import { IntegrityModule } from './integrity/integrity.module';
 import { TemplateLockModule } from './template-lock/template-lock.module';
+import { TemplateLevelConfigModule } from './template-level-config/template-level-config.module';
+import { RebateManagementModule } from './rebate-management/rebate-management.module';
 
 
 @Module({
@@ -28,7 +30,9 @@ import { TemplateLockModule } from './template-lock/template-lock.module';
     CommonModule,
     TemplateApplyModule,
     IntegrityModule,
-    TemplateLockModule
+    TemplateLockModule,
+    TemplateLevelConfigModule,
+    RebateManagementModule,
   ],
   controllers: [AppController],
   providers: [AppService],

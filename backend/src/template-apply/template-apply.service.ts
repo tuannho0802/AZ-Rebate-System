@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { CommissionConfigService } from '../commission-config/commission-config.service';
+import { TemplateType } from '@prisma/client';
 
 export interface RequestActor {
   id: string;
@@ -16,10 +17,155 @@ export class TemplateApplyService {
     private readonly commissionConfigService: CommissionConfigService,
   ) { }
 
-  async applyTemplate(templateId: string, userId: string, actor: RequestActor) {
+  private async applyItemTemplate(templateId: string, userId: string, actor: RequestActor) {
     const template = await this.prisma.template.findUnique({
       where: { id: templateId },
       include: { items: true },
+    });
+    if (!template) {
+      throw new NotFoundException('Template not found');
+    }
+
+    if (template.items.length === 0) {
+      throw new BadRequestException('Template has no items to apply');
+    }
+
+    const meaningfulItems = template.items.filter(
+      (item) => Number(item.rebateUnit) !== 0 || Number(item.markupPips) !== 0,
+    );
+
+    if (meaningfulItems.length === 0) {
+      throw new BadRequestException(
+        'Template has no meaningful (non-zero) items to apply — all items are unset placeholders',
+      );
+    }
+
+    const appliedConfigs = await this.prisma.$transaction(async (tx) => {
+      const results: Awaited<ReturnType<typeof this.commissionConfigService.upsert>>[] = [];
+      for (const item of meaningfulItems) {
+        try {
+          const applied = await this.commissionConfigService.upsert(
+            {
+              userId,
+              assetId: item.assetId,
+              rebateUnit: Number(item.rebateUnit),
+              markupPips: Number(item.markupPips),
+            },
+            actor,
+            tx,
+            true,
+          );
+          results.push(applied);
+        } catch (err) {
+          throw new BadRequestException(
+            `Apply template thất bại ở assetId ${item.assetId}: ${err.message}`,
+          );
+        }
+      }
+      return results;
+    });
+
+    return appliedConfigs;
+  }
+
+  private async applyLevelTemplate(templateId: string, rootUserId: string, actor: RequestActor) {
+    if (actor.type !== 'ADMIN') {
+      throw new ForbiddenException('Only Admin can apply LEVEL templates');
+    }
+
+    const template = await this.prisma.template.findUnique({
+      where: { id: templateId },
+      include: {
+        levelConfigs: {
+          orderBy: [{ level: 'asc' }, { assetId: 'asc' }],
+        },
+      },
+    });
+    if (!template) {
+      throw new NotFoundException('Template not found');
+    }
+
+    if (template.levelConfigs.length === 0) {
+      throw new BadRequestException('Template LEVEL has no level configs to apply');
+    }
+
+    const subtreeUsers = await this.prisma.$queryRaw<Array<{ id: string; email: string; level: number }>>`
+      WITH RECURSIVE subtree AS (
+        SELECT u.id, u.email, u.level
+        FROM "User" u
+        WHERE u.id = ${rootUserId}
+        UNION ALL
+        SELECT c.id, c.email, c.level
+        FROM "User" c
+        JOIN subtree s ON c."parentId" = s.id
+      )
+      SELECT id, email, level FROM subtree ORDER BY level ASC, email ASC;
+    `;
+
+    if (subtreeUsers.length === 0) {
+      throw new NotFoundException('User not found');
+    }
+
+    const usersByLevel = new Map<number, Array<{ id: string; email: string }>>();
+    for (const user of subtreeUsers) {
+      const bucket = usersByLevel.get(user.level) ?? [];
+      bucket.push({ id: user.id, email: user.email });
+      usersByLevel.set(user.level, bucket);
+    }
+
+    const appliedConfigs = await this.prisma.$transaction(async (tx) => {
+      const results: Array<{
+        userId: string;
+        email: string;
+        level: number;
+        assetId: string;
+        config: Awaited<ReturnType<typeof this.commissionConfigService.upsert>>;
+      }> = [];
+
+      for (const levelConfig of template.levelConfigs) {
+        const targets = usersByLevel.get(levelConfig.level) ?? [];
+        for (const target of targets) {
+          try {
+            const config = await this.commissionConfigService.upsert(
+              {
+                userId: target.id,
+                assetId: levelConfig.assetId,
+                rebateUnit: Number(levelConfig.rebateUnit),
+                markupPips: Number(levelConfig.markupPips),
+              },
+              actor,
+              tx,
+              true,
+            );
+            results.push({
+              userId: target.id,
+              email: target.email,
+              level: levelConfig.level,
+              assetId: levelConfig.assetId,
+              config,
+            });
+          } catch (err) {
+            throw new BadRequestException(
+              `Apply template LEVEL thất bại ở level ${levelConfig.level}, assetId ${levelConfig.assetId}, user ${target.email}: ${err.message}`,
+            );
+          }
+        }
+      }
+
+      return results;
+    });
+
+    if (appliedConfigs.length === 0) {
+      throw new BadRequestException('Template LEVEL không map được tới user nào trong nhánh đích');
+    }
+
+    return appliedConfigs;
+  }
+
+  async applyTemplate(templateId: string, userId: string, actor: RequestActor) {
+    const template = await this.prisma.template.findUnique({
+      where: { id: templateId },
+      select: { id: true, type: true },
     });
     if (!template) {
       throw new NotFoundException('Template not found');
@@ -58,59 +204,10 @@ export class TemplateApplyService {
       }
     }
 
-    if (template.items.length === 0) {
-      throw new BadRequestException('Template has no items to apply');
-    }
-
-    // [MOI] Loc bo item PLACEHOLDER (rebateUnit=0 VA markupPips=0). admin.service.ts
-    // tu dong dem item (0,0) cho MOI asset ma Admin khong liet ke khi tao/update
-    // Template (xem createTemplate/updateTemplate), va coi day la "chua cau hinh"
-    // chu khong phai gia tri that — bang chung ro nhat la deleteAsset() CHU Y bo qua
-    // item (0,0) khi dem ref-count. Truoc day vong lap nay ap CA nhung placeholder
-    // do len UserCommissionConfig cua target, khien 1 template "1 asset" thuc te ghi
-    // de len HANG CHUC asset khac (vi du GOLD) ve 0 — dung nguyen nhan gay ledger am
-    // khi target la cha dang co con giu gia tri > 0 o nhung asset do (bi
-    // assertNoChildExceeds chan lai, lo ra bug nay). Chi ap dung item Admin THAT SU
-    // chu dong set (khac 0/0), nhat quan voi quy uoc da co san trong admin.service.ts.
-    const meaningfulItems = template.items.filter(
-      (item) => Number(item.rebateUnit) !== 0 || Number(item.markupPips) !== 0,
-    );
-
-    if (meaningfulItems.length === 0) {
-      throw new BadRequestException(
-        'Template has no meaningful (non-zero) items to apply — all items are unset placeholders',
-      );
-    }
-
-    // TÁI SỬ DỤNG commissionConfigService.upsert() cho từng item, truyền `tx`
-    // để mọi write (kể cả AuditLog con mà upsert() tự ghi) nằm trong CÙNG 1
-    // transaction — 1 item fail thì Prisma tự rollback toàn bộ. Với permission
-    // check đã đúng ở trên, cap/orphan check bên trong upsert() giờ chỉ còn
-    // là lớp phòng thủ thứ 2 (defense in depth), không phải lớp chặn chính.
-    const appliedConfigs = await this.prisma.$transaction(async (tx) => {
-      const results: Awaited<ReturnType<typeof this.commissionConfigService.upsert>>[] = [];
-      for (const item of meaningfulItems) {
-        try {
-          const applied = await this.commissionConfigService.upsert(
-            {
-              userId,
-              assetId: item.assetId,
-              rebateUnit: Number(item.rebateUnit),
-              markupPips: Number(item.markupPips),
-            },
-            actor,
-            tx,
-            true,
-          );
-          results.push(applied);
-        } catch (err) {
-          throw new BadRequestException(
-            `Apply template thất bại ở assetId ${item.assetId}: ${err.message}`,
-          );
-        }
-      }
-      return results;
-    });
+    const appliedConfigs =
+      template.type === TemplateType.LEVEL
+        ? await this.applyLevelTemplate(templateId, userId, actor)
+        : await this.applyItemTemplate(templateId, userId, actor);
 
     await this.auditLog.createLog({
       actorId: actor.id,
