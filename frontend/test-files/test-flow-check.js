@@ -3,10 +3,15 @@
  *
  * MỤC ĐÍCH: chạy toàn bộ flow nghiệp vụ chính theo đúng thứ tự phụ thuộc
  * (auth -> admin CRUD -> users hierarchy -> commission-config cap/orphan/
- * version -> template apply -> payout-session/ledger state machine), in ra
+ * version -> template apply/lock -> payout-session/ledger state machine ->
+ * integrity check -> rebate management per-path cap/cumulative), in ra
  * PASS/FAIL rõ ràng cho từng bước, KHÔNG cần sửa CONFIG bằng tay mỗi lần —
  * mọi userId cần thiết được TỰ resolve qua GET /users theo email (seed data
  * cố định), không hardcode UUID.
+ *
+ * ĐÃ GỘP: nội dung của test-rebate-management.js được gộp vào làm mục 9
+ * (REBATE MANAGEMENT) — không cần chạy file riêng nữa. File
+ * test-rebate-management.js cũ có thể xoá.
  *
  * TÁI SỬ DỤNG NHIỀU LẦN AN TOÀN: Asset/Template/User mới tạo trong lúc test
  * đều có suffix theo timestamp (RUN_ID) nên không bao giờ đụng độ với lần
@@ -22,7 +27,8 @@
  *   BASE_URL=http://localhost:3000 node test-flow-check.js   (override nếu cần)
  *
  * YÊU CẦU: Node.js 18+ (dùng global fetch), backend đang chạy, DB đã seed
- * theo đúng prisma/seed.ts (email/password mặc định bên dưới).
+ * theo đúng prisma/seed.ts (email/password mặc định bên dưới, đủ cả nhánh
+ * mib/lv1-a/lv1-b/lv2-a/lv2-b/lv2-c/lv3-a/lv3-b cho mục 9).
  */
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
@@ -179,6 +185,8 @@ async function main() {
     const lv2a = need(SEED.lv2a);
     const lv2c = need(SEED.lv2c); // con trực tiếp THẬT của lv1-b (theo seed.ts) — dùng cho test orphan-config
     const lv3a = idx.get(SEED.lv3a); // optional, dùng cho test subtree sâu hơn nếu có
+    const lv2b = idx.get(SEED.lv2b); // optional — dùng cho mục REBATE MANAGEMENT (nhánh rẽ lv1a->lv2a/lv2b)
+    const lv3b = idx.get(SEED.lv3b); // optional — dùng cho mục REBATE MANAGEMENT (nhánh rẽ lv2a->lv3a/lv3b)
 
     // ===== 1. ADMIN — Asset & Template CRUD (dữ liệu mới, unique theo RUN_ID) =====
     section('1. ADMIN — Asset & Template CRUD');
@@ -236,6 +244,7 @@ async function main() {
             body: {
                 name: templateName,
                 description: 'Auto-created by test-flow-check.js',
+                type: 'ITEM',
                 level: 0,
                 items: [{ assetId: templateAsset?.id, rebateUnit: 2, markupPips: 2 }],
             },
@@ -489,6 +498,7 @@ async function main() {
                     token: adminToken,
                     body: {
                         name: `High Template ${RUN_ID}`,
+                        type: 'ITEM',
                         level: 1,
                         items: [{ assetId: asset.id, rebateUnit: 20, markupPips: 20 }],
                     },
@@ -505,6 +515,7 @@ async function main() {
                     token: adminToken,
                     body: {
                         name: `Low Template ${RUN_ID}`,
+                        type: 'ITEM',
                         level: 1,
                         items: [{ assetId: asset.id, rebateUnit: 5, markupPips: 5 }],
                     },
@@ -521,6 +532,7 @@ async function main() {
                     token: adminToken,
                     body: {
                         name: `Admin High Template ${RUN_ID}`,
+                        type: 'ITEM',
                         level: 0,
                         items: [{ assetId: asset.id, rebateUnit: 30, markupPips: 30 }],
                     },
@@ -624,6 +636,7 @@ async function main() {
                     token: adminToken,
                     body: {
                         name: `Level 2 Template ${RUN_ID}`,
+                        type: 'ITEM',
                         level: 2,
                         items: [{ assetId: asset.id, rebateUnit: 1, markupPips: 1 }],
                     },
@@ -1178,6 +1191,268 @@ async function main() {
             !stillFalsePositive,
             `stillFalsePositive=${stillFalsePositive}`
         );
+    }
+
+    // ===== 9. REBATE MANAGEMENT — per-path Cap Max, cumulative, template LEVEL =====
+    // (Gộp từ test-rebate-management.js — dùng CÂY RIÊNG mới tạo, KHÔNG dùng chung
+    // cây seed mib/lv1-a/... với các mục phía trên. Lý do: mục 2 (USERS) luôn tạo
+    // thêm 1 IB con mới dưới lv1-a (testflow-child-<RUN_ID>@test.com, "no hard
+    // delete" nên không bao giờ bị xoá) — nếu mục 9 dùng chung cây seed, PATCH
+    // toàn nhánh sẽ luôn bị 400 "còn node thiếu config" vì user leftover đó chưa
+    // từng có config cho asset MỚI của mục 9. Tạo cây riêng, có suffix RUN_ID,
+    // đảm bảo mục 9 độc lập hoàn toàn với trạng thái để lại bởi các mục khác.
+    //   rMib
+    //   ├─ rLv1a
+    //   │   ├─ rLv2a
+    //   │   │   ├─ rLv3a   (điểm rẽ nhánh: rLv2a có 2 con)
+    //   │   │   └─ rLv3b
+    //   │   └─ rLv2b        (điểm rẽ nhánh: rLv1a có 2 con)
+    //   └─ rLv1b             (điểm rẽ nhánh: rMib có 2 con)
+    //       └─ rLv2c
+    section('9. REBATE MANAGEMENT — per-path Cap Max / cumulative / template LEVEL');
+    {
+        const rPrefix = `testflow-rebate-${RUN_ID}`;
+        async function createRebateUser(label, suffix, parentId, role) {
+            const res = await check(
+                `Tạo user riêng cho mục 9: ${label}`,
+                'POST',
+                '/admin/users',
+                {
+                    token: adminToken,
+                    body: {
+                        email: `${rPrefix}-${suffix}@test.com`,
+                        password: SEED_PASSWORD,
+                        fullName: label,
+                        role,
+                        parentId: parentId || undefined,
+                    },
+                },
+                201
+            );
+            return res.body;
+        }
+
+        const rMib = await createRebateUser('Rebate Test MIB', 'mib', null, 'MIB');
+        const rLv1a = rMib?.id && (await createRebateUser('Rebate Test Lv1-A', 'lv1a', rMib.id, 'IB'));
+        const rLv1b = rMib?.id && (await createRebateUser('Rebate Test Lv1-B', 'lv1b', rMib.id, 'IB'));
+        const rLv2a = rLv1a?.id && (await createRebateUser('Rebate Test Lv2-A', 'lv2a', rLv1a.id, 'IB'));
+        const rLv2b = rLv1a?.id && (await createRebateUser('Rebate Test Lv2-B', 'lv2b', rLv1a.id, 'IB'));
+        const rLv2c = rLv1b?.id && (await createRebateUser('Rebate Test Lv2-C', 'lv2c', rLv1b.id, 'IB'));
+        const rLv3a = rLv2a?.id && (await createRebateUser('Rebate Test Lv3-A', 'lv3a', rLv2a.id, 'IB'));
+        const rLv3b = rLv2a?.id && (await createRebateUser('Rebate Test Lv3-B', 'lv3b', rLv2a.id, 'IB'));
+
+        if (!rMib?.id || !rLv1a?.id || !rLv1b?.id || !rLv2a?.id || !rLv2b?.id || !rLv2c?.id || !rLv3a?.id || !rLv3b?.id) {
+            record('SKIP phần còn lại của mục 9', false, 'Không tạo được đủ 8 user riêng cho cây test Rebate Management');
+        } else {
+            const rebateAssetCode = `TESTFLOW_REBATE_${RUN_ID}`;
+            const rebateCap = { capMaxRebate: 10, capMaxMarkup: 5, capMaxTotal: 15 };
+            // Cap Max dùng cho asset test — mỗi path riêng biệt (root -> leaf) phải cộng dồn
+            // khớp đúng 3 số này. 4 path trong cây riêng:
+            //   rMib -> rLv1a -> rLv2a -> rLv3a : 2 + 2 + 2 + 4 = 10
+            //   rMib -> rLv1a -> rLv2a -> rLv3b : 2 + 2 + 2 + 4 = 10
+            //   rMib -> rLv1a -> rLv2b          : 2 + 2 + 6     = 10
+            //   rMib -> rLv1b -> rLv2c          : 2 + 2 + 6     = 10
+            const OWN = {
+                mib: { rebate: 2, markup: 1 },
+                lv1a: { rebate: 2, markup: 1 },
+                lv1b: { rebate: 2, markup: 1 },
+                lv2a: { rebate: 2, markup: 1 },
+                lv2b: { rebate: 6, markup: 3 }, // leaf
+                lv2c: { rebate: 6, markup: 3 }, // leaf
+                lv3a: { rebate: 4, markup: 2 }, // leaf
+                lv3b: { rebate: 4, markup: 2 }, // leaf
+            };
+
+            const rebateAssetRes = await check(
+                'Admin tạo Asset riêng cho test Rebate Management',
+                'POST',
+                '/admin/assets',
+                { token: adminToken, body: { code: rebateAssetCode, name: `Test Rebate Asset ${RUN_ID}`, category: 'OTHER' } },
+                201
+            );
+            const rebateAsset = rebateAssetRes.body;
+
+            if (!rebateAsset?.id) {
+                record('SKIP phần còn lại của mục 9', false, 'Không tạo được asset riêng cho Rebate Management');
+            } else {
+                await check(
+                    'Admin set Cap Max cho asset (rebate=10, markup=5, total=15)',
+                    'PATCH',
+                    `/admin/assets/${rebateAsset.id}`,
+                    { token: adminToken, body: rebateCap },
+                    200
+                );
+
+                // ---- PATCH hợp lệ cho toàn bộ 8 node theo per-path Cap Max ----
+                const validUpdates = [
+                    { userId: rMib.id, rebate: OWN.mib.rebate, markup: OWN.mib.markup },
+                    { userId: rLv1a.id, rebate: OWN.lv1a.rebate, markup: OWN.lv1a.markup },
+                    { userId: rLv1b.id, rebate: OWN.lv1b.rebate, markup: OWN.lv1b.markup },
+                    { userId: rLv2a.id, rebate: OWN.lv2a.rebate, markup: OWN.lv2a.markup },
+                    { userId: rLv2b.id, rebate: OWN.lv2b.rebate, markup: OWN.lv2b.markup },
+                    { userId: rLv2c.id, rebate: OWN.lv2c.rebate, markup: OWN.lv2c.markup },
+                    { userId: rLv3a.id, rebate: OWN.lv3a.rebate, markup: OWN.lv3a.markup },
+                    { userId: rLv3b.id, rebate: OWN.lv3b.rebate, markup: OWN.lv3b.markup },
+                ];
+                const validPatchRes = await check(
+                    'PATCH toàn bộ 8 node — mỗi path (root->leaf) khớp đúng Cap Max',
+                    'PATCH',
+                    `/rebate-management/${rMib.id}/asset/${rebateAsset.id}`,
+                    { token: adminToken, body: { updates: validUpdates } },
+                    200
+                );
+                record(
+                    '  -> updatedCount = 8',
+                    validPatchRes.body?.updatedCount === 8,
+                    `updatedCount = ${validPatchRes.body?.updatedCount}`
+                );
+
+                // ---- GET cây — xác nhận cumulative null tại 3 điểm rẽ nhánh, đúng số tại các node còn lại ----
+                const getTreeRes = await check(
+                    'GET /rebate-management/:rootUserId/asset/:assetId',
+                    'GET',
+                    `/rebate-management/${rMib.id}/asset/${rebateAsset.id}`,
+                    { token: adminToken },
+                    200
+                );
+
+                if (getTreeRes.pass) {
+                    const flatten = (node, acc = new Map()) => {
+                        if (!node) return acc;
+                        acc.set(node.userId, node);
+                        (node.children || []).forEach((c) => flatten(c, acc));
+                        return acc;
+                    };
+                    const byId = flatten(getTreeRes.body?.root);
+
+                    const isNullCumulative = (node) =>
+                        node?.cumulativeRebate === null && node?.cumulativeMarkup === null && node?.cumulativeTotal === null;
+
+                    for (const [label, id] of [
+                        ['mib (rẽ lv1-a / lv1-b)', rMib.id],
+                        ['lv1-a (rẽ lv2-a / lv2-b)', rLv1a.id],
+                        ['lv2-a (rẽ lv3-a / lv3-b)', rLv2a.id],
+                    ]) {
+                        const node = byId.get(id);
+                        record(
+                            `  -> Node rẽ nhánh ${label} có cumulativeRebate/Markup/Total = null`,
+                            isNullCumulative(node),
+                            `cumulativeRebate=${node?.cumulativeRebate}, cumulativeMarkup=${node?.cumulativeMarkup}, cumulativeTotal=${node?.cumulativeTotal}`
+                        );
+                    }
+
+                    const expectCumulative = [
+                        ['lv1-b (chain đơn -> lv2-c)', rLv1b.id, OWN.lv1b.rebate + OWN.lv2c.rebate, OWN.lv1b.markup + OWN.lv2c.markup],
+                        ['lv2-b (leaf)', rLv2b.id, OWN.lv2b.rebate, OWN.lv2b.markup],
+                        ['lv2-c (leaf)', rLv2c.id, OWN.lv2c.rebate, OWN.lv2c.markup],
+                        ['lv3-a (leaf)', rLv3a.id, OWN.lv3a.rebate, OWN.lv3a.markup],
+                        ['lv3-b (leaf)', rLv3b.id, OWN.lv3b.rebate, OWN.lv3b.markup],
+                    ];
+                    for (const [label, id, expRebate, expMarkup] of expectCumulative) {
+                        const node = byId.get(id);
+                        const ok =
+                            Math.abs((node?.cumulativeRebate ?? NaN) - expRebate) < 0.0001 &&
+                            Math.abs((node?.cumulativeMarkup ?? NaN) - expMarkup) < 0.0001;
+                        record(
+                            `  -> ${label} có cumulativeRebate=${expRebate}, cumulativeMarkup=${expMarkup}`,
+                            ok,
+                            `thực tế: cumulativeRebate=${node?.cumulativeRebate}, cumulativeMarkup=${node?.cumulativeMarkup}`
+                        );
+                    }
+                }
+
+                // ---- PATCH cố tình lệch Cap Max — kỳ vọng 400 ----
+                const invalidPatchRes = await check(
+                    'PATCH rebate MIB +100 (vượt Cap Max) -> phải 400',
+                    'PATCH',
+                    `/rebate-management/${rMib.id}/asset/${rebateAsset.id}`,
+                    { token: adminToken, body: { updates: [{ userId: rMib.id, rebate: OWN.mib.rebate + 100, markup: OWN.mib.markup }] } },
+                    400
+                );
+                const rebateErrMsg = String(invalidPatchRes.body?.message || '');
+                record(
+                    '  -> Message 400 nêu rõ path bị lệch (chứa "->" hoặc "path")',
+                    rebateErrMsg.includes('->') || rebateErrMsg.toLowerCase().includes('path'),
+                    rebateErrMsg
+                );
+
+                await check(
+                    'Khôi phục lại rebate MIB đúng sau khi test lệch Cap Max',
+                    'PATCH',
+                    `/rebate-management/${rMib.id}/asset/${rebateAsset.id}`,
+                    { token: adminToken, body: { updates: [{ userId: rMib.id, rebate: OWN.mib.rebate, markup: OWN.mib.markup }] } },
+                    200
+                );
+
+                // ---- REGRESSION — applyTemplate() kiểu ITEM có sẵn vẫn hoạt động đúng ----
+                const rebateListTemplatesRes = await check('GET /admin/templates (regression check)', 'GET', '/admin/templates', { token: adminToken }, 200);
+                const itemTemplate = (rebateListTemplatesRes.body || []).find((t) => t.type === 'ITEM');
+                if (itemTemplate) {
+                    await check(
+                        `applyTemplate() kiểu ITEM ("${itemTemplate.name}") cho lv3-a -> vẫn hoạt động bình thường`,
+                        'POST',
+                        `/templates/${itemTemplate.id}/apply/${rLv3a.id}`,
+                        { token: adminToken },
+                        [200, 201]
+                    );
+                } else {
+                    console.log('   (Không tìm thấy template kiểu ITEM nào có sẵn — bỏ qua, không tính pass/fail.)');
+                }
+
+                // ---- Template kiểu LEVEL — tạo, upsert level-configs, apply cho root mib ----
+                const createLevelTemplateRes = await check(
+                    'Admin tạo Template kiểu LEVEL',
+                    'POST',
+                    '/admin/templates',
+                    { token: adminToken, body: { name: `TESTFLOW_REBATE_LEVEL_${RUN_ID}`, description: 'Auto-created by test-flow-check.js (mục 9)', type: 'LEVEL', level: 0 } },
+                    201
+                );
+                const levelTemplate = createLevelTemplateRes.body;
+
+                if (levelTemplate?.id) {
+                    await check(
+                        'Upsert level-configs (level 0=mib, 1=lv1, 2=lv2 — tổng khớp Cap Max theo path lv2-b/lv2-c)',
+                        'POST',
+                        `/templates/${levelTemplate.id}/level-configs`,
+                        {
+                            token: adminToken,
+                            body: {
+                                configs: [
+                                    { assetId: rebateAsset.id, level: 0, rebateUnit: OWN.mib.rebate, markupPips: OWN.mib.markup },
+                                    { assetId: rebateAsset.id, level: 1, rebateUnit: OWN.lv1a.rebate, markupPips: OWN.lv1a.markup },
+                                    { assetId: rebateAsset.id, level: 2, rebateUnit: OWN.lv2b.rebate, markupPips: OWN.lv2b.markup },
+                                ],
+                            },
+                        },
+                        [200, 201]
+                    );
+
+                    await check(
+                        'applyTemplate() kiểu LEVEL cho root mib -> áp dụng cho toàn nhánh',
+                        'POST',
+                        `/templates/${levelTemplate.id}/apply/${rMib.id}`,
+                        { token: adminToken },
+                        [200, 201]
+                    );
+
+                    const childCfgRes = await check(
+                        'GET children config của mib sau khi apply LEVEL template',
+                        'GET',
+                        `/commission-configs/children/${rMib.id}?assetId=${rebateAsset.id}`,
+                        { token: adminToken },
+                        200
+                    );
+                    const lv1aCfg = childCfgRes.body?.children?.find((c) => c.userId === rLv1a.id);
+                    record(
+                        '  -> lv1-a (level 1) nhận đúng rebate/markup theo level-config vừa upsert',
+                        Number(lv1aCfg?.rebateUnit) === OWN.lv1a.rebate && Number(lv1aCfg?.markupPips) === OWN.lv1a.markup,
+                        `rebateUnit=${lv1aCfg?.rebateUnit}, markupPips=${lv1aCfg?.markupPips} (expect ${OWN.lv1a.rebate}/${OWN.lv1a.markup})`
+                    );
+                } else {
+                    record('SKIP phần LEVEL template của mục 9', false, 'Tạo template LEVEL thất bại');
+                }
+            }
+        }
     }
 
     printSummaryAndExit();
