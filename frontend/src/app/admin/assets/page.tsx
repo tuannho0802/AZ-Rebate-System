@@ -9,7 +9,7 @@ import AssetFormDialog from '../../../components/AssetFormDialog';
 import { PageShell, PageBody, Card, Button } from '../../../components/ui/primitives';
 
 export default function AdminAssetsPage() {
-  const { user, isLoading } = useAuth();
+  const { user, logout, isLoading } = useAuth();
   const router = useRouter();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -101,6 +101,8 @@ export default function AdminAssetsPage() {
 
   return (
     <PageShell>
+
+
       <PageBody>
         <Card
           title="Danh sách Asset"
@@ -129,4 +131,3 @@ export default function AdminAssetsPage() {
     </PageShell>
   );
 }
-

@@ -32,8 +32,8 @@ export default function RoleSidebarLayout({
     roleLabel.toLowerCase() === 'admin'
       ? 'admin'
       : roleLabel === 'MIB'
-      ? 'MIB'
-      : 'IB';
+        ? 'MIB'
+        : 'IB';
   const theme = roleTheme[roleKey] ?? roleTheme.admin;
 
   return (

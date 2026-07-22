@@ -38,7 +38,7 @@ export { roleTheme };
 
 
 export function PageBody({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx('max-w-7xl mx-auto px-6 py-8 space-y-6', className)}>{children}</div>;
+  return <div className={cx(' mx-auto space-y-6', className)}>{children}</div>;
 }
 
 /* -------------------------------- Cards -------------------------------- */
