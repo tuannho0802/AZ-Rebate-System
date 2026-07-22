@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '../context/auth-context';
-import { Template, listVisibleTemplates, applyTemplate } from '../lib/api/template';
-import { User, listUsers } from '../lib/api/user';
-import { Card, Field, Button, EmptyState, Badge } from './ui/primitives';
-import { FormError } from './ui/Dialog';
-import SearchableSelect from './ui/SearchableSelect';
+import { useAuth } from '@/context/auth-context';
+import { Template, listVisibleTemplates, applyTemplate } from '@/lib/api/template';
+import { User, listUsers } from '@/lib/api/user';
+import { Card, Field, Button, EmptyState, Badge } from '@/components/ui/primitives';
+import { FormError } from '@/components/ui/Dialog';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 export default function TemplateApplyPage() {
   const { user } = useAuth();

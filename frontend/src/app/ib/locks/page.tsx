@@ -1,6 +1,6 @@
 'use client';
 
-import TemplateLocksPage from '../../../components/TemplateLocksPage';
+import TemplateLocksPage from '@/components/TemplateLocksPage';
 
 export default function IbLocksLoaderPage() {
   return <TemplateLocksPage />;

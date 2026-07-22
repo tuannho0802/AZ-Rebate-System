@@ -2,18 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { useAuth } from '../context/auth-context';
-import { User, listUsers, updateUser } from '../lib/api/user';
-import { Asset, listAssets } from '../lib/api/admin';
+import { useAuth } from '@/context/auth-context';
+import { User, listUsers, updateUser } from '@/lib/api/user';
+import { Asset, listAssets } from '@/lib/api/admin';
 import {
   getConfigChildren,
   setConfigTotal,
   updateConfigTotal,
   CommissionConfigSelf,
   CommissionConfigChild,
-} from '../lib/api/commission-config';
-import { Card, Field, Input, Select, Button, Badge } from './ui/primitives';
-import { FormError } from './ui/Dialog';
+} from '@/lib/api/commission-config';
+import { Card, Field, Input, Select, Button, Badge } from '@/components/ui/primitives';
+import { FormError } from '@/components/ui/Dialog';
 
 export default function UserDetailPage() {
   const { user } = useAuth();

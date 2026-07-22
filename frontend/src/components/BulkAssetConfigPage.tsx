@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { useAuth } from '../context/auth-context';
-import { getConfigChildren, setConfigTotal } from '../lib/api/commission-config';
-import { Template, listVisibleTemplates } from '../lib/api/template';
-import { User, listUsers } from '../lib/api/user';
-import { Asset, listAssets } from '../lib/api/admin';
-import { Card, Badge, Button, Select, Spinner, EmptyState } from './ui/primitives';
-import { FormError } from './ui/Dialog';
+import { useAuth } from '@/context/auth-context';
+import { getConfigChildren, setConfigTotal } from '@/lib/api/commission-config';
+import { Template, listVisibleTemplates } from '@/lib/api/template';
+import { User, listUsers } from '@/lib/api/user';
+import { Asset, listAssets } from '@/lib/api/admin';
+import { Card, Badge, Button, Select, Spinner, EmptyState } from '@/components/ui/primitives';
+import { FormError } from '@/components/ui/Dialog';
 
 interface RowState {
   assetId: string;

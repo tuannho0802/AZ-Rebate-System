@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '../context/auth-context';
-import { TemplateLockStatus, getTemplateLockStatus, lockTemplate, unlockTemplate } from '../lib/api/template';
-import { User, listUsers } from '../lib/api/user';
-import { Card, Badge, Button, EmptyState, Table, Th, Td, Loading } from './ui/primitives';
-import { FormError } from './ui/Dialog';
-import { LevelBadge } from './ui/LevelBadge';
+import { useAuth } from '@/context/auth-context';
+import { TemplateLockStatus, getTemplateLockStatus, lockTemplate, unlockTemplate } from '@/lib/api/template';
+import { User, listUsers } from '@/lib/api/user';
+import { Card, Badge, Button, EmptyState, Table, Th, Td, Loading } from '@/components/ui/primitives';
+import { FormError } from '@/components/ui/Dialog';
+import { LevelBadge } from '@/components/ui/LevelBadge';
 
 export default function TemplateLocksPage() {
   const { user } = useAuth();
