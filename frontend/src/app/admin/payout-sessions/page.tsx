@@ -11,6 +11,7 @@ import {
   lockSession,
   completeSession,
   getSession,
+  getSessionLedger,
 } from '@/lib/api/payout-session';
 import { listUsers, User } from '@/lib/api/user';
 import { listAssets, Asset } from '@/lib/api/admin';
@@ -123,9 +124,12 @@ export default function AdminPayoutSessionsPage() {
 
   const loadSessionDetails = async (id: string) => {
     try {
-      const sessionData = await getSession(id);
+      const [sessionData, ledgerData] = await Promise.all([
+        getSession(id),
+        getSessionLedger(id)
+      ]);
       setSelectedSession(sessionData);
-      setLedgerEntries(sessionData.ledgerEntries);
+      setLedgerEntries(ledgerData);
     } catch (error: any) {
       alert(`Failed to load session details: ${error.message}`);
     }

@@ -66,10 +66,12 @@ export async function lockSession(id: string): Promise<void> {
 export async function completeSession(id: string): Promise<void> {
   await api.post<void>(`/payout-sessions/${id}/complete`, {});
 }
-export async function getSession(id: string): Promise<PayoutSession & { ledgerEntries: LedgerEntry[] }> {
+export async function getSession(id: string): Promise<PayoutSession> {
   const data = await api.get<any>(`/payout-sessions/${id}`);
-  return {
-    ...normalizeSession(data),
-    ledgerEntries: (data.ledgerEntries ?? []).map(normalizeLedgerEntry),
-  };
+  return normalizeSession(data);
+}
+
+export async function getSessionLedger(id: string): Promise<LedgerEntry[]> {
+  const data = await api.get<any[]>(`/payout-sessions/${id}/ledger`);
+  return (data ?? []).map(normalizeLedgerEntry);
 }
