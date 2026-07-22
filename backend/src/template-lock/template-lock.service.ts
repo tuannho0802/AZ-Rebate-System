@@ -30,7 +30,7 @@ export class TemplateLockService {
         JOIN ancestors a ON a."parentId" = p.id
         WHERE a.depth < 50
       )
-      SELECT id FROM ancestors WHERE id = ${actorId}
+      SELECT id FROM ancestors WHERE id = ${actorId} AND depth > 0
       LIMIT 1;
     `;
     return ancestors.length > 0;

@@ -47,13 +47,15 @@ export class TemplateApplyService {
       throw new ForbiddenException('You can only apply a template to your own direct child');
     }
 
-    const existingLock = await this.prisma.templateLock.findUnique({
-      where: { templateId_userId: { templateId, userId } },
-    });
-    if (existingLock) {
-      throw new ForbiddenException(
-        'Template này đang bị khóa cho user này — cần mở khóa (unlock) trước khi áp dụng',
-      );
+    if (actor.type !== 'ADMIN') {
+      const existingLock = await this.prisma.templateLock.findUnique({
+        where: { templateId_userId: { templateId, userId: actor.id } },
+      });
+      if (existingLock) {
+        throw new ForbiddenException(
+          'Bạn đang bị khóa sử dụng template này — liên hệ cấp trên để mở khóa (unlock) trước khi áp dụng',
+        );
+      }
     }
 
     if (template.items.length === 0) {

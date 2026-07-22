@@ -607,6 +607,14 @@ async function main() {
                 [200, 201]
             );
 
+            await check(
+                'lv1-b tự gọi unlock cho chính mình (template mà MIB đã khoá) -> phải 403',
+                'POST',
+                `/templates/${lowTemplate.id}/unlock/${lv1b.id}`,
+                { token: lv1bToken },
+                403
+            );
+
             // Tạo template level 2 để test lock cho grandchild (lv2a có level = 2)
             const level2TemplateRes = await check(
                 'Admin tạo Template Level 2 (cho cháu lv2-a)',
@@ -709,11 +717,16 @@ async function main() {
             const hasNoLevelUser = userVisible.body?.length > 0 && userVisible.body.every((t) => t.level === undefined);
             record('  -> non-admin không thấy field level', hasNoLevelUser, `sample.level = ${userVisible.body?.[0]?.level}`);
 
-            // [Enforce Lock ở tầng Apply — chặn bypass] Lock lại lowTemplate cho lv1-b
-            // (đã unlock ở case trước đó trong section này), rồi thử áp dụng — phải
-            // bị chặn dù actor (MIB) đúng là cha trực tiếp hợp lệ.
+            // [Enforce Lock ở tầng Apply — ĐÚNG MODEL FORWARD-LOOKING]
+            // Lock(templateId, userId=X) nghĩa là: X bị cấm DÙNG templateId để tự áp
+            // XUỐNG con của X — KHÔNG PHẢI cấm người khác áp templateId LÊN X.
+            // Vậy actor bị chặn 403 phải LÀ CHÍNH user bị khoá (X), target phải LÀ
+            // CON CỦA X — không phải actor=MIB/target=lv1-b như bản test cũ (đã bị
+            // xác nhận là test sai model, xem trao đổi review trước đó).
+
+            // ---- Case 1: lv1-b bị khoá lowTemplate, thử tự áp cho con của lv1-b (lv2-c) ----
             await check(
-                '[Enforce lock] MIB lock lại lowTemplate cho lv1-b (chuẩn bị test chặn apply)',
+                '[Enforce lock] MIB lock lowTemplate cho lv1-b (chuẩn bị test chặn lv1-b tự áp xuống)',
                 'POST',
                 `/templates/${lowTemplate.id}/lock/${lv1b.id}`,
                 { token: mibToken },
@@ -721,10 +734,10 @@ async function main() {
             );
 
             await check(
-                '[Enforce lock] MIB áp lowTemplate (đang khóa) cho lv1-b -> phải 403 (không được bypass qua API)',
+                '[Enforce lock] lv1-b (đang bị khóa lowTemplate) tự áp lowTemplate cho con của mình (lv2-c) -> phải 403',
                 'POST',
-                `/templates/${lowTemplate.id}/apply/${lv1b.id}`,
-                { token: mibToken },
+                `/templates/${lowTemplate.id}/apply/${lv2c.id}`,
+                { token: lv1bToken },
                 403
             );
 
@@ -737,16 +750,52 @@ async function main() {
             );
 
             await check(
-                '[Enforce lock] Sau khi unlock -> MIB áp lowTemplate cho lv1-b -> phải thành công (201)',
+                '[Enforce lock] Sau khi unlock -> lv1-b tự áp lowTemplate cho con (lv2-c) -> phải thành công (201)',
                 'POST',
-                `/templates/${lowTemplate.id}/apply/${lv1b.id}`,
+                `/templates/${lowTemplate.id}/apply/${lv2c.id}`,
+                { token: lv1bToken },
+                201
+            );
+
+            // ---- Case 2: MIB bị khoá `template` (level 0), thử tự áp cho con của MIB (lv1-b) ----
+            // Dùng `template` (không phải adminHighTemplate) vì tổng 2/2=4 khớp đúng
+            // cap hiện tại của MIB cho templateAsset (đã set = 4 từ mục 4), tránh lẫn
+            // lộn với lỗi cap-check khi verify bước unlock -> phải thành công.
+            await check(
+                '[Enforce lock] Admin lock template (level 0) cho MIB (chuẩn bị test chặn MIB tự áp xuống)',
+                'POST',
+                `/templates/${template.id}/lock/${mib.id}`,
+                { token: adminToken },
+                [200, 201]
+            );
+
+            await check(
+                '[Enforce lock] MIB (đang bị khóa template) tự áp template cho con của mình (lv1-b) -> phải 403',
+                'POST',
+                `/templates/${template.id}/apply/${lv1b.id}`,
+                { token: mibToken },
+                403
+            );
+
+            await check(
+                '[Enforce lock] Admin unlock lại template cho MIB',
+                'POST',
+                `/templates/${template.id}/unlock/${mib.id}`,
+                { token: adminToken },
+                [200, 201]
+            );
+
+            await check(
+                '[Enforce lock] Sau khi unlock -> MIB tự áp template cho con (lv1-b) -> phải thành công (201)',
+                'POST',
+                `/templates/${template.id}/apply/${lv1b.id}`,
                 { token: mibToken },
                 201
             );
 
-            // Test case bổ sung — Admin cũng bị chặn bởi lock của chính mình
+            // ---- Case 3: xác nhận Admin luôn bypass lock (actor.type === 'ADMIN' không bao giờ bị check lock) ----
             await check(
-                '[Enforce lock] Admin lock adminHighTemplate cho MIB (test Admin cũng bị chặn bởi lock của chính mình)',
+                '[Enforce lock] Admin lock adminHighTemplate cho MIB (test Admin actor luôn bypass check lock của actor)',
                 'POST',
                 `/templates/${adminHighTemplate.id}/lock/${mib.id}`,
                 { token: adminToken },
@@ -754,11 +803,11 @@ async function main() {
             );
 
             await check(
-                '[Enforce lock] Admin áp adminHighTemplate (đang khóa) cho MIB -> phải 403',
+                '[Enforce lock] Admin áp adminHighTemplate cho MIB dù MIB đang "bị khóa" template này -> vẫn phải 201 (Admin bypass hoàn toàn check lock, không liên quan tới lock của MIB)',
                 'POST',
                 `/templates/${adminHighTemplate.id}/apply/${mib.id}`,
                 { token: adminToken },
-                403
+                201
             );
 
             await check(
