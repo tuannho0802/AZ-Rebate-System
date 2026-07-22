@@ -118,17 +118,12 @@ export interface UpdateCommissionTotalDto {
 // API calls
 // ============================================================================
 
-// Admin-only (AdminOnlyGuard). assetId là query param — theo API_REFERENCE.md
-// mục Commission Config, route này dùng CÙNG pattern query với
-// GET .../children/:userId, nơi đã xác nhận assetId BẮT BUỘC qua log thật ở
-// Flow 04. Áp dụng cùng giả định ở đây; nếu chạy thực tế cho thấy optional,
-// cập nhật lại comment này + API_REFERENCE.md, đừng chỉ sửa lặng lẽ.
+// Actor phải là chính mình (MIB/IB) hoặc Admin. assetId BẮT BUỘC — thiếu → 400.
 export async function getConfigTree(userId: string, assetId: string): Promise<CommissionConfigTreeNode> {
     const data = await api.get<CommissionConfigTreeNode>(`/commission-configs/tree/${userId}?assetId=${assetId}`);
     return { ...data, children: data.children ?? [] };
 }
 
-// Actor phải là chính mình (MIB/IB) hoặc Admin. assetId BẮT BUỘC — thiếu → 400.
 export async function getConfigChildren(userId: string, assetId: string): Promise<CommissionConfigChildrenResponse> {
     return api.get<CommissionConfigChildrenResponse>(`/commission-configs/children/${userId}?assetId=${assetId}`);
 }

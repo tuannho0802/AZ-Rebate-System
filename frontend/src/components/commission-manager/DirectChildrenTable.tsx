@@ -23,8 +23,6 @@ export interface DirectChildrenTableProps {
   loadingChildren: boolean;
   rolePath: 'mib' | 'ib';
   onCreateChild: () => void;
-  onOpenApplyTemplate: () => void;
-  onOpenLockTemplate: () => void;
 }
 
 export default function DirectChildrenTable({
@@ -35,8 +33,6 @@ export default function DirectChildrenTable({
   loadingChildren,
   rolePath,
   onCreateChild,
-  onOpenApplyTemplate,
-  onOpenLockTemplate,
 }: DirectChildrenTableProps) {
   const router = useRouter();
 
@@ -46,12 +42,6 @@ export default function DirectChildrenTable({
       description={selectedAsset ? `Đang xem cấu hình cho asset ${selectedAsset.code}` : undefined}
       actions={
         <>
-          <Button size="sm" variant="secondary" onClick={onOpenLockTemplate}>
-            Khóa/Mở khóa Template
-          </Button>
-          <Button size="sm" variant="secondary" onClick={onOpenApplyTemplate}>
-            Áp dụng Template
-          </Button>
           <Button size="sm" onClick={onCreateChild}>
             + Tạo tài khoản con
           </Button>

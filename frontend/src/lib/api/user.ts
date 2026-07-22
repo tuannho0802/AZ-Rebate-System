@@ -48,10 +48,7 @@ export async function createUser(dto: CreateUserDto): Promise<User> {
   return api.post<User>('/admin/users', dto);
 }
 
-// GET /users/:id
-export async function getUser(id: string): Promise<User> {
-  return api.get<User>(`/users/${id}`);
-}
+
 
 // PATCH /users/:id
 export async function updateUser(id: string, dto: UpdateUserDto): Promise<User> {

@@ -15,13 +15,11 @@ import {
   InfoBanner,
   Select,
 } from './ui/primitives';
-import ManageTemplateLockDialog from './ManageTemplateLockDialog';
 import { User, listUsers, createDirectChild } from '../lib/api/user';
 import { Asset, listAssets } from '../lib/api/admin';
-import { Template, listTemplates, listVisibleTemplates, applyTemplate } from '../lib/api/template';
+import { Template, listTemplates, listVisibleTemplates } from '../lib/api/template';
 import {
   CreateChildDialog,
-  ApplyTemplateDialog,
   DirectChildrenTable,
 } from './commission-manager';
 
@@ -51,8 +49,6 @@ export default function CommissionManager() {
 
   // ---- Dialog visibility state ----
   const [createChildOpen, setCreateChildOpen] = useState(false);
-  const [applyTemplateOpen, setApplyTemplateOpen] = useState(false);
-  const [lockTemplateOpen, setLockTemplateOpen] = useState(false);
 
   // ---- Load Assets + Templates (created by Admin, reused here) ----
   useEffect(() => {
@@ -150,16 +146,6 @@ export default function CommissionManager() {
     refreshAll();
   };
 
-  // Dùng thẳng endpoint thật POST /templates/:templateId/apply/:userId — chạy
-  // trong 1 transaction ở backend (xem template-apply.service.ts), rollback
-  // toàn bộ nếu 1 asset lỗi (vd vượt cap).
-  const handleApplyTemplate = async (templateId: string, targetUserId: string) => {
-    const applied = await applyTemplate(templateId, targetUserId);
-    setApplyTemplateOpen(false);
-    if (selectedAssetId) loadChildrenConfig(selectedAssetId);
-    return applied.length;
-  };
-
   if (!ownId) return null;
 
   const selectedAsset = assets.find((a) => a.id === selectedAssetId);
@@ -214,29 +200,11 @@ export default function CommissionManager() {
         loadingChildren={loadingChildren}
         rolePath={user.role === 'MIB' ? 'mib' : 'ib'}
         onCreateChild={() => setCreateChildOpen(true)}
-        onOpenApplyTemplate={() => setApplyTemplateOpen(true)}
-        onOpenLockTemplate={() => setLockTemplateOpen(true)}
       />
 
       {/* ---------------- Dialogs ---------------- */}
 
       <CreateChildDialog open={createChildOpen} onClose={() => setCreateChildOpen(false)} onSave={handleCreateChild} />
-
-      <ApplyTemplateDialog
-        open={applyTemplateOpen}
-        onClose={() => setApplyTemplateOpen(false)}
-        templates={templates}
-        templatesError={templatesError}
-        directChildren={directChildren}
-        onApply={handleApplyTemplate}
-      />
-
-      <ManageTemplateLockDialog
-        open={lockTemplateOpen}
-        onClose={() => setLockTemplateOpen(false)}
-        templates={templates}
-        directChildren={directChildren}
-      />
     </div>
   );
 }

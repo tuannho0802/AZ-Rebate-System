@@ -66,7 +66,6 @@ export async function lockSession(id: string): Promise<void> {
 export async function completeSession(id: string): Promise<void> {
   await api.post<void>(`/payout-sessions/${id}/complete`, {});
 }
-
 export async function getSession(id: string): Promise<PayoutSession & { ledgerEntries: LedgerEntry[] }> {
   const data = await api.get<any>(`/payout-sessions/${id}`);
   return {
