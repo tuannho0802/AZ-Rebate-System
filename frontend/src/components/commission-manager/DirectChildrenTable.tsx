@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { User } from '../../lib/api/user';
 import { Asset } from '../../lib/api/admin';
 import { CommissionConfigChild } from '../../lib/api/commission-config';
@@ -20,9 +21,7 @@ export interface DirectChildrenTableProps {
   selectedAsset: Asset | undefined;
   selectedAssetId: string;
   loadingChildren: boolean;
-  onEditAccount: (child: User) => void;
-  onSetConfig: (child: User) => void;
-  onBulkConfig: (child: User) => void;
+  rolePath: 'mib' | 'ib';
   onCreateChild: () => void;
   onOpenApplyTemplate: () => void;
   onOpenLockTemplate: () => void;
@@ -34,13 +33,13 @@ export default function DirectChildrenTable({
   selectedAsset,
   selectedAssetId,
   loadingChildren,
-  onEditAccount,
-  onSetConfig,
-  onBulkConfig,
+  rolePath,
   onCreateChild,
   onOpenApplyTemplate,
   onOpenLockTemplate,
 }: DirectChildrenTableProps) {
+  const router = useRouter();
+
   return (
     <Card
       title="Con trực tiếp của bạn"
@@ -77,7 +76,6 @@ export default function DirectChildrenTable({
             <tbody>
               {directChildren.map((child) => {
                 const cfg = childrenConfig.get(child.id);
-                const hasConfig = cfg?.transferUnit != null;
                 return (
                   <tr key={child.id} className="hover:bg-slate-50/70">
                     <Td className="font-medium text-slate-900">{child.email}</Td>
@@ -87,24 +85,9 @@ export default function DirectChildrenTable({
                     </Td>
                     <Td mono>{cfg?.transferUnit ?? <span className="font-sans text-slate-300">chưa set</span>}</Td>
                     <Td className="text-right whitespace-nowrap">
-                      <div className="inline-flex gap-1.5">
-                        <Button size="sm" variant="ghost" onClick={() => onEditAccount(child)}>
-                          Sửa TK
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-indigo-600"
-                          disabled={!selectedAssetId}
-                          title={!selectedAssetId ? 'Chọn Asset trước' : ''}
-                          onClick={() => onSetConfig(child)}
-                        >
-                          {hasConfig ? 'Sửa Config' : '+ Set Config'}
-                        </Button>
-                        <Button size="sm" variant="secondary" onClick={() => onBulkConfig(child)}>
-                          Nhiều Asset
-                        </Button>
-                      </div>
+                      <Button size="sm" variant="secondary" onClick={() => router.push(`/${rolePath}/config/${child.id}`)}>
+                        Quản lý
+                      </Button>
                     </Td>
                   </tr>
                 );

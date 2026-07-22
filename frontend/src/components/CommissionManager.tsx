@@ -15,15 +15,12 @@ import {
   InfoBanner,
   Select,
 } from './ui/primitives';
-import BulkAssetConfigDialog from './BulkAssetConfigDialog';
 import ManageTemplateLockDialog from './ManageTemplateLockDialog';
-import { User, listUsers, createDirectChild, updateUser } from '../lib/api/user';
+import { User, listUsers, createDirectChild } from '../lib/api/user';
 import { Asset, listAssets } from '../lib/api/admin';
 import { Template, listTemplates, listVisibleTemplates, applyTemplate } from '../lib/api/template';
 import {
   CreateChildDialog,
-  EditAccountDialog,
-  SetConfigDialog,
   ApplyTemplateDialog,
   DirectChildrenTable,
 } from './commission-manager';
@@ -54,9 +51,6 @@ export default function CommissionManager() {
 
   // ---- Dialog visibility state ----
   const [createChildOpen, setCreateChildOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<User | null>(null);
-  const [configDialogChild, setConfigDialogChild] = useState<User | null>(null);
-  const [bulkConfigChild, setBulkConfigChild] = useState<User | null>(null);
   const [applyTemplateOpen, setApplyTemplateOpen] = useState(false);
   const [lockTemplateOpen, setLockTemplateOpen] = useState(false);
 
@@ -156,36 +150,6 @@ export default function CommissionManager() {
     refreshAll();
   };
 
-  const handleEditAccountSubmit = async (dto: { fullName: string; isActive: boolean }) => {
-    if (!editingAccount) return;
-    await updateUser(editingAccount.id, dto);
-    setEditingAccount(null);
-    refreshAll();
-  };
-
-  // ---- Single-asset config (create-or-update in one dialog) ----
-  // [SUA] MIB/IB chỉ được nhập 1 số tổng (transferUnit) — gửi rebateUnit/markupPips
-  // riêng lẻ sẽ bị backend trả 403 (ForbiddenException, xem commission-config.service.ts).
-  const handleSetConfig = async (dto: { transferUnit: number }) => {
-    if (!configDialogChild || !selectedAssetId) return;
-    const existing = childrenConfig.get(configDialogChild.id);
-    if (existing?.version != null) {
-      // Đã có config — dùng update kèm version cho optimistic lock.
-      await updateConfigTotal(configDialogChild.id, selectedAssetId, {
-        transferUnit: dto.transferUnit,
-        version: existing.version,
-      });
-    } else {
-      await setConfigTotal({
-        userId: configDialogChild.id,
-        assetId: selectedAssetId,
-        transferUnit: dto.transferUnit,
-      });
-    }
-    setConfigDialogChild(null);
-    loadChildrenConfig(selectedAssetId);
-  };
-
   // Dùng thẳng endpoint thật POST /templates/:templateId/apply/:userId — chạy
   // trong 1 transaction ở backend (xem template-apply.service.ts), rollback
   // toàn bộ nếu 1 asset lỗi (vd vượt cap).
@@ -248,9 +212,7 @@ export default function CommissionManager() {
         selectedAsset={selectedAsset}
         selectedAssetId={selectedAssetId}
         loadingChildren={loadingChildren}
-        onEditAccount={setEditingAccount}
-        onSetConfig={setConfigDialogChild}
-        onBulkConfig={setBulkConfigChild}
+        rolePath={user.role === 'MIB' ? 'mib' : 'ib'}
         onCreateChild={() => setCreateChildOpen(true)}
         onOpenApplyTemplate={() => setApplyTemplateOpen(true)}
         onOpenLockTemplate={() => setLockTemplateOpen(true)}
@@ -259,38 +221,6 @@ export default function CommissionManager() {
       {/* ---------------- Dialogs ---------------- */}
 
       <CreateChildDialog open={createChildOpen} onClose={() => setCreateChildOpen(false)} onSave={handleCreateChild} />
-
-      {editingAccount && (
-        <EditAccountDialog
-          user={editingAccount}
-          onClose={() => setEditingAccount(null)}
-          onSave={handleEditAccountSubmit}
-        />
-      )}
-
-      {configDialogChild && selectedAssetId && (
-        <SetConfigDialog
-          child={configDialogChild}
-          assetLabel={selectedAsset ? `${selectedAsset.code} — ${selectedAsset.name}` : ''}
-          existing={childrenConfig.get(configDialogChild.id) ?? null}
-          selfCap={selfInfo}
-          onClose={() => setConfigDialogChild(null)}
-          onSave={handleSetConfig}
-        />
-      )}
-
-      <BulkAssetConfigDialog
-        open={!!bulkConfigChild}
-        onClose={() => setBulkConfigChild(null)}
-        ownId={ownId}
-        targetUser={bulkConfigChild}
-        assets={assets}
-        templates={templates}
-        onDone={() => {
-          setBulkConfigChild(null);
-          if (selectedAssetId) loadChildrenConfig(selectedAssetId);
-        }}
-      />
 
       <ApplyTemplateDialog
         open={applyTemplateOpen}
